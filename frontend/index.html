@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>InsureCo AI Voice Navigator — Dashboard</title>
+  <meta name="description"
+    content="Real-time AI-powered insurance call centre dashboard with live call monitoring, call simulation, analytics, and policy management." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+
+<body>
+  <!-- ─── Sidebar ──────────────────────────────────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path
+            d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.18h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6 6l.83-.9a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.72 17z" />
+        </svg>
+      </div>
+      <div>
+        <span class="logo-name">InsureCo</span>
+        <span class="logo-sub">AI Voice Navigator</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <button class="nav-item active" id="nav-dashboard" onclick="showView('dashboard')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="7" height="7" />
+          <rect x="14" y="3" width="7" height="7" />
+          <rect x="14" y="14" width="7" height="7" />
+          <rect x="3" y="14" width="7" height="7" />
+        </svg>
+        Live Calls
+        <span class="nav-badge" id="active-call-badge">0</span>
+      </button>
+      <button class="nav-item" id="nav-simulator" onclick="showView('simulator')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10" />
+          <polygon points="10 8 16 12 10 16 10 8" />
+        </svg>
+        Call Simulator
+      </button>
+      <button class="nav-item" id="nav-analytics" onclick="showView('analytics')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="20" x2="18" y2="10" />
+          <line x1="12" y1="20" x2="12" y2="4" />
+          <line x1="6" y1="20" x2="6" y2="14" />
+        </svg>
+        Analytics
+      </button>
+      <button class="nav-item" id="nav-policies" onclick="showView('policies')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+          <polyline points="10 9 9 9 8 9" />
+        </svg>
+        Policy Manager
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="status-indicator online">
+        <span class="dot"></span>
+        System Online
+      </div>
+      <div class="version">v1.0.0 · GPT-4o · CrewAI</div>
+    </div>
+  </aside>
+
+  <!-- ─── Main Content ────────────────────────────────────────────── -->
+  <main class="main-content">
+
+    <!-- ── Header ── -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 id="view-title">Live Calls</h1>
+        <p id="view-subtitle">Real-time call monitoring</p>
+      </div>
+      <div class="topbar-right">
+        <div class="topbar-stat">
+          <span class="stat-value" id="hdr-calls">47</span>
+          <span class="stat-label">Today</span>
+        </div>
+        <div class="topbar-stat">
+          <span class="stat-value accent" id="hdr-rate">91%</span>
+          <span class="stat-label">Resolved</span>
+        </div>
+        <div class="avatar">AI</div>
+      </div>
+    </header>
+
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <!--  VIEW: Live Calls Dashboard                                  -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <section class="view active" id="view-dashboard">
+      <!-- KPI Row -->
+      <div class="kpi-grid">
+        <div class="kpi-card" id="kpi-active">
+          <div class="kpi-icon teal"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <path
+                d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.18h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6 6l.83-.9a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.72 17z" />
+            </svg></div>
+          <div class="kpi-body">
+            <span class="kpi-value" id="kpi-active-val">0</span>
+            <span class="kpi-label">Active Calls</span>
+          </div>
+          <div class="kpi-pulse" id="kpi-pulse"></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon blue"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg></div>
+          <div class="kpi-body">
+            <span class="kpi-value">2.8s</span>
+            <span class="kpi-label">Avg Response</span>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon green"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <polyline points="20 6 9 17 4 12" />
+            </svg></div>
+          <div class="kpi-body">
+            <span class="kpi-value">91%</span>
+            <span class="kpi-label">AI Resolved</span>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon purple"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg></div>
+          <div class="kpi-body">
+            <span class="kpi-value" id="kpi-today-val">47</span>
+            <span class="kpi-label">Calls Today</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Active Call List -->
+      <div class="section-header">
+        <h2>Active Calls</h2>
+        <button class="btn btn-ghost" onclick="refreshCalls()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+          </svg>
+          Refresh
+        </button>
+      </div>
+      <div class="call-list" id="call-list">
+        <div class="empty-state" id="call-empty">
+          <div class="empty-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path
+                d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.18h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6 6l.83-.9a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.72 17z" />
+            </svg>
+          </div>
+          <p>No active calls right now</p>
+          <span>Try the <strong>Call Simulator</strong> to test the AI pipeline</span>
+        </div>
+      </div>
+
+      <!-- Recent Activity -->
+      <div class="section-header mt-lg">
+        <h2>Recent Activity</h2>
+      </div>
+      <div class="activity-feed" id="activity-feed">
+        <!-- Populated by JS -->
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <!--  VIEW: Call Simulator                                        -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <section class="view" id="view-simulator">
+      <div class="simulator-layout">
+        <!-- Left: Config Panel -->
+        <div class="sim-config card">
+          <h2 class="card-title">Call Configuration</h2>
+          <div class="form-group">
+            <label>Caller / Policy ID</label>
+            <select id="sim-caller-id" class="form-control">
+              <option value="POL-001">POL-001 — Sarah O'Brien (PremiumCare Plus)</option>
+              <option value="POL-002">POL-002 — James Murphy (StandardCare)</option>
+              <option value="POL-003">POL-003 — Aoife Kelly (BasicCare)</option>
+              <option value="DEMO-001">DEMO-001 — Anonymous Demo</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Demo Mode</label>
+            <div class="toggle-row">
+              <input type="checkbox" id="sim-demo-mode" class="toggle" checked />
+              <label for="sim-demo-mode" class="toggle-label"></label>
+              <span class="toggle-desc">Fast responses (no API keys needed)</span>
+            </div>
+          </div>
+
+          <div class="quick-queries">
+            <h3>Quick Test Queries</h3>
+            <button class="quick-btn" onclick="setQuery('Is surgery at Beacon Hospital covered under my plan?')">🏥
+              Surgery at Beacon Hospital</button>
+            <button class="quick-btn" onclick="setQuery('How much of my dental treatment is covered?')">🦷 Dental
+              coverage</button>
+            <button class="quick-btn" onclick="setQuery('Am I covered for mental health counselling?')">🧠 Mental
+              health</button>
+            <button class="quick-btn" onclick="setQuery('What is my remaining deductible?')">💰 Deductible
+              status</button>
+            <button class="quick-btn" onclick="setQuery('How much of my annual limit is left?')">📊 Claim limit</button>
+            <button class="quick-btn" onclick="setQuery('Is Dublin City Hospital in my network?')">🗺️ Hospital
+              network</button>
+          </div>
+
+          <button class="btn btn-danger btn-full" onclick="clearSimulation()" id="sim-clear-btn">
+            Clear Conversation
+          </button>
+        </div>
+
+        <!-- Right: Chat Panel -->
+        <div class="sim-chat">
+          <div class="chat-header card">
+            <div class="chat-status">
+              <span class="dot green-dot"></span>
+              <span>AI Agent Active</span>
+            </div>
+            <div class="agent-pills">
+              <span class="chip">Identity</span>
+              <span class="chip">Intent</span>
+              <span class="chip">RAG</span>
+              <span class="chip">Formatter</span>
+            </div>
+          </div>
+
+          <div class="chat-messages" id="chat-messages">
+            <div class="message assistant">
+              <div class="msg-avatar">AI</div>
+              <div class="msg-bubble">
+                Thank you for calling InsureCo. Please state your policy number and date of birth to begin.
+              </div>
+            </div>
+          </div>
+
+          <div class="chat-input-bar card">
+            <button class="btn btn-icon" id="sim-mic-btn" onclick="toggleRecording()" title="Hold to talk">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="22" />
+                <line x1="8" y1="22" x2="16" y2="22" />
+              </svg>
+            </button>
+            <input type="text" id="sim-input" class="form-control" placeholder="Type a caller message or use the mic..."
+              onkeydown="if(event.key==='Enter') sendMessage()" autocomplete="off" />
+            <button class="btn btn-primary" id="sim-send-btn" onclick="sendMessage()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+              Send
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <!--  VIEW: Analytics                                             -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <section class="view" id="view-analytics">
+      <!-- Metric Cards -->
+      <div class="analytics-grid">
+        <div class="metric-card card">
+          <div class="metric-label">Calls Today</div>
+          <div class="metric-value counter" data-target="47" id="m-calls">0</div>
+          <div class="metric-trend up">↑ 12% vs yesterday</div>
+        </div>
+        <div class="metric-card card">
+          <div class="metric-label">AI Resolution Rate</div>
+          <div class="metric-value counter pct" data-target="91" id="m-rate">0</div>
+          <div class="metric-trend up">↑ 3% vs last week</div>
+        </div>
+        <div class="metric-card card">
+          <div class="metric-label">Avg Response Time</div>
+          <div class="metric-value" id="m-latency">2.8s</div>
+          <div class="metric-trend down">↓ 0.4s improved</div>
+        </div>
+        <div class="metric-card card">
+          <div class="metric-label">Transferred to Human</div>
+          <div class="metric-value counter pct" data-target="9" id="m-transfer">0</div>
+          <div class="metric-trend down">↓ Better than 12% target</div>
+        </div>
+      </div>
+
+      <!-- Charts Row -->
+      <div class="charts-row">
+        <div class="chart-card card">
+          <h3>Intent Distribution</h3>
+          <div class="chart-wrap">
+            <canvas id="intent-chart"></canvas>
+          </div>
+        </div>
+        <div class="chart-card card wide">
+          <h3>Hourly Call Volume (Today)</h3>
+          <div class="chart-wrap tall">
+            <canvas id="hourly-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agent Pipeline Performance -->
+      <div class="card mt-lg">
+        <h3 class="card-title">Agent Pipeline Performance</h3>
+        <div class="pipeline-bars">
+          <div class="pipe-item">
+            <span class="pipe-name">Identity Verifier</span>
+            <div class="pipe-bar-bg">
+              <div class="pipe-bar" style="width:98%"></div>
+            </div>
+            <span class="pipe-pct">98% success</span>
+          </div>
+          <div class="pipe-item">
+            <span class="pipe-name">Intent Extractor</span>
+            <div class="pipe-bar-bg">
+              <div class="pipe-bar" style="width:95%"></div>
+            </div>
+            <span class="pipe-pct">95% accuracy</span>
+          </div>
+          <div class="pipe-item">
+            <span class="pipe-name">RAG Policy Retriever</span>
+            <div class="pipe-bar-bg">
+              <div class="pipe-bar blue-bar" style="width:89%"></div>
+            </div>
+            <span class="pipe-pct">89% match rate</span>
+          </div>
+          <div class="pipe-item">
+            <span class="pipe-name">Response Formatter</span>
+            <div class="pipe-bar-bg">
+              <div class="pipe-bar green-bar" style="width:100%"></div>
+            </div>
+            <span class="pipe-pct">100% template hit</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <!--  VIEW: Policy Manager                                        -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <section class="view" id="view-policies">
+      <div class="policies-layout">
+        <!-- Upload Card -->
+        <div class="card upload-card">
+          <h2 class="card-title">Index New Policy Document</h2>
+          <p class="card-desc">Upload a PDF policy document to index it into Azure AI Search for RAG retrieval.</p>
+          <div class="upload-zone" id="upload-zone" ondragover="event.preventDefault()" ondrop="handleDrop(event)">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+            <p>Drag & drop a PDF here</p>
+            <span>or</span>
+            <input type="file" id="policy-file" accept=".pdf" style="display:none" onchange="handleFileSelect(event)" />
+            <button class="btn btn-ghost" onclick="document.getElementById('policy-file').click()">Browse File</button>
+          </div>
+          <div class="form-group mt-md">
+            <label>Policy ID</label>
+            <input type="text" id="pol-id-input" class="form-control" placeholder="e.g. POL-006" />
+          </div>
+          <button class="btn btn-primary btn-full mt-sm" onclick="indexPolicy()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            Index Document
+          </button>
+        </div>
+
+        <!-- Known Policies Table -->
+        <div class="card policies-table-card">
+          <h2 class="card-title">Policyholder Database</h2>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Policy ID</th>
+                <th>Name</th>
+                <th>Plan</th>
+                <th>Deductible Left</th>
+                <th>Claims Used</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="policies-tbody">
+              <tr>
+                <td>POL-001</td>
+                <td>Sarah O'Brien</td>
+                <td>PremiumCare Plus</td>
+                <td>€300</td>
+                <td>€12,500 / €100,000</td>
+                <td><span class="badge active">Active</span></td>
+              </tr>
+              <tr>
+                <td>POL-002</td>
+                <td>James Murphy</td>
+                <td>StandardCare</td>
+                <td>€200</td>
+                <td>€7,800 / €50,000</td>
+                <td><span class="badge active">Active</span></td>
+              </tr>
+              <tr>
+                <td>POL-003</td>
+                <td>Aoife Kelly</td>
+                <td>BasicCare</td>
+                <td>€2,000</td>
+                <td>€1,200 / €25,000</td>
+                <td><span class="badge active">Active</span></td>
+              </tr>
+              <tr>
+                <td>POL-004</td>
+                <td>Ciarán Walsh</td>
+                <td>SeniorCare Gold</td>
+                <td>€0</td>
+                <td>€45,000 / €150,000</td>
+                <td><span class="badge active">Active</span></td>
+              </tr>
+              <tr>
+                <td>POL-005</td>
+                <td>Niamh Brennan</td>
+                <td>YoungAdult Starter</td>
+                <td>€1,500</td>
+                <td>€0 / €20,000</td>
+                <td><span class="badge active">Active</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="js/app.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/simulator.js"></script>
+  <script src="js/analytics.js"></script>
+</body>
+
+</html>
