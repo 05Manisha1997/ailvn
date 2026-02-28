@@ -47,12 +47,9 @@ class Settings(BaseSettings):
     azure_storage_connection_string: str = ""
     azure_storage_container_docs: str = "voice-nav-docs"
 
-    # ── Redis ─────────────────────────────────────────
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-    redis_password: str = ""
-    redis_ssl: bool = False
-    redis_session_ttl_seconds: int = 3600
+    # ── Cosmos DB Session Storage (Temporary) ─────────
+    cosmos_db_container_sessions: str = "sessions"
+    cosmos_db_session_ttl_seconds: int = 3600
 
     # ── ChromaDB ──────────────────────────────────────
     chroma_host: str = "localhost"

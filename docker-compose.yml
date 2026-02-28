@@ -1,21 +1,6 @@
 version: "3.9"
 
 services:
-  # ── Redis (Session & Temp Memory) ────────────
-  redis:
-    image: redis:7-alpine
-    container_name: voice-nav-redis
-    ports:
-      - "6379:6379"
-    command: redis-server --maxmemory 250mb --maxmemory-policy allkeys-lru
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
   # ── ChromaDB (Vector Store) ───────────────────
   chromadb:
     image: chromadb/chroma:latest
@@ -59,11 +44,8 @@ services:
     env_file:
       - .env
     environment:
-      - REDIS_HOST=redis
       - CHROMA_HOST=chromadb
     depends_on:
-      redis:
-        condition: service_healthy
       chromadb:
         condition: service_healthy
     volumes:
@@ -71,6 +53,5 @@ services:
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 
 volumes:
-  redis_data:
   chroma_data:
   ollama_data:

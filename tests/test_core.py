@@ -171,13 +171,18 @@ class TestResponsePortal:
 
 class TestSessionMemory:
     def setup_method(self):
-        """Use a mock Redis client."""
-        self.mock_redis = MagicMock()
-        self.mock_redis.get.return_value = None
-        self.mock_redis.setex.return_value = True
-        self.mock_redis.expire.return_value = True
+        """Use a mock Cosmos DB container."""
+        self.mock_container = MagicMock()
+        self.mock_container.read_item.return_value = None
+        self.mock_container.upsert_item.return_value = True
 
-        with patch("memory.session_memory.get_redis_client", return_value=self.mock_redis):
+        with patch("memory.session_memory.get_cosmos_client") as mock_cosmos:
+            mock_client = MagicMock()
+            mock_db = MagicMock()
+            mock_cosmos.return_value = mock_client
+            mock_client.get_database_client.return_value = mock_db
+            mock_db.get_container_client.return_value = self.mock_container
+            
             from memory.session_memory import SessionMemory
             self.memory = SessionMemory()
 
@@ -190,10 +195,13 @@ class TestSessionMemory:
     def test_save_and_load_session(self):
         session = self.memory.create_session("+14155552671")
 
-        # Mock Redis to return the serialized session
-        import json, dataclasses
-        serialized = json.dumps(dataclasses.asdict(session))
-        self.mock_redis.get.return_value = serialized
+        # Mock Cosmos DB to return the session document
+        import dataclasses
+        session_dict = dataclasses.asdict(session)
+        session_dict["conversation"] = [dataclasses.asdict(t) for t in session.conversation]
+        session_dict["id"] = session.call_id
+        session_dict["ttl"] = 3600
+        self.mock_container.read_item.return_value = session_dict
 
         loaded = self.memory.get_session(session.call_id)
         assert loaded is not None
@@ -203,13 +211,16 @@ class TestSessionMemory:
     def test_set_verified(self):
         session = self.memory.create_session("+14155552671")
 
-        import json, dataclasses
-        serialized = json.dumps(dataclasses.asdict(session))
-        self.mock_redis.get.return_value = serialized
+        import dataclasses
+        session_dict = dataclasses.asdict(session)
+        session_dict["conversation"] = [dataclasses.asdict(t) for t in session.conversation]
+        session_dict["id"] = session.call_id
+        session_dict["ttl"] = 3600
+        self.mock_container.read_item.return_value = session_dict
 
         self.memory.set_verified(session.call_id, "John Smith", "CUST-001")
-        # Verify setex was called (save happened)
-        assert self.mock_redis.setex.called
+        # Verify upsert_item was called (save happened)
+        assert self.mock_container.upsert_item.called
 
     def test_get_full_context_for_agent(self):
         session = self.memory.create_session("+14155552671")
@@ -217,9 +228,12 @@ class TestSessionMemory:
         session.is_verified = True
         session.intent_history = ["ACCOUNT_BALANCE", "COMPLAINT"]
 
-        import json, dataclasses
-        serialized = json.dumps(dataclasses.asdict(session))
-        self.mock_redis.get.return_value = serialized
+        import dataclasses
+        session_dict = dataclasses.asdict(session)
+        session_dict["conversation"] = [dataclasses.asdict(t) for t in session.conversation]
+        session_dict["id"] = session.call_id
+        session_dict["ttl"] = 3600
+        self.mock_container.read_item.return_value = session_dict
 
         context = self.memory.get_full_context_for_agent(session.call_id)
         assert context["caller"]["name"] == "John Smith"

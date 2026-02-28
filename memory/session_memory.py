@@ -1,19 +1,19 @@
 """
 memory/session_memory.py
 
-Redis-backed session memory for call state.
+Cosmos DB-backed session memory for call state (temporary storage).
 All data is automatically deleted when TTL expires (call ends).
 Stores: verification state, conversation turns, intent history,
         temporary RAG document references.
+TTL: Handled by Cosmos DB's built-in TTL feature.
 """
-import json
 import uuid
 from datetime import datetime
-from typing import Optional, Any
+from typing import Optional
 from dataclasses import dataclass, asdict, field
 
 from config.settings import get_settings
-from config.azure_clients import get_redis_client
+from config.azure_clients import get_cosmos_client
 from utils.logger import logger
 
 settings = get_settings()
@@ -50,26 +50,20 @@ class CallSession:
 
 class SessionMemory:
     """
-    Manages call sessions in Redis with automatic TTL expiry.
-    Key pattern: session:{call_id}
-    TTL: REDIS_SESSION_TTL_SECONDS (default 1 hour)
+    Manages call sessions in Cosmos DB with automatic TTL expiry.
+    Document ID: {call_id}
+    TTL: COSMOS_DB_SESSION_TTL_SECONDS (default 3600 = 1 hour)
+    Container: cosmos_db_container_sessions
     """
 
-    KEY_PREFIX = "session"
-    DOCS_KEY_PREFIX = "docs"
-
     def __init__(self):
-        self._redis = get_redis_client()
-        self._ttl = settings.redis_session_ttl_seconds
-
-    def _session_key(self, call_id: str) -> str:
-        return f"{self.KEY_PREFIX}:{call_id}"
-
-    def _docs_key(self, call_id: str) -> str:
-        return f"{self.DOCS_KEY_PREFIX}:{call_id}"
+        client = get_cosmos_client()
+        db = client.get_database_client(settings.cosmos_db_database)
+        self._container = db.get_container_client(settings.cosmos_db_container_sessions)
+        self._ttl = settings.cosmos_db_session_ttl_seconds
 
     def create_session(self, caller_phone: str) -> CallSession:
-        """Create a new call session and persist to Redis."""
+        """Create a new call session and persist to Cosmos DB."""
         call_id = str(uuid.uuid4())
         session = CallSession(call_id=call_id, caller_phone=caller_phone)
         self._save(session)
@@ -77,26 +71,35 @@ class SessionMemory:
         return session
 
     def get_session(self, call_id: str) -> Optional[CallSession]:
-        """Load a session from Redis."""
-        raw = self._redis.get(self._session_key(call_id))
-        if not raw:
+        """Load a session from Cosmos DB."""
+        try:
+            item = self._container.read_item(item=call_id, partition_key=call_id)
+            # Deserialize nested dataclasses
+            item["conversation"] = [ConversationTurn(**t) for t in item.get("conversation", [])]
+            return CallSession(**item)
+        except Exception as e:
+            logger.debug("session_not_found", call_id=call_id, error=str(e))
             return None
-        data = json.loads(raw)
-        # Deserialize nested dataclasses
-        data["conversation"] = [ConversationTurn(**t) for t in data.get("conversation", [])]
-        return CallSession(**data)
 
     def save_session(self, session: CallSession):
-        """Persist session updates to Redis (resets TTL)."""
+        """Persist session updates to Cosmos DB (resets TTL)."""
         self._save(session)
 
     def _save(self, session: CallSession):
+        """Save session document with TTL."""
         data = asdict(session)
-        self._redis.setex(
-            self._session_key(session.call_id),
-            self._ttl,
-            json.dumps(data),
-        )
+        # Convert dataclass objects to dicts for serialization
+        data["conversation"] = [asdict(t) for t in session.conversation]
+        # Add Cosmos DB required fields
+        data["id"] = session.call_id
+        # Set TTL in seconds (Cosmos DB will delete after this time from last write)
+        data["ttl"] = self._ttl
+        
+        try:
+            self._container.upsert_item(body=data)
+        except Exception as e:
+            logger.error("session_save_failed", call_id=session.call_id, error=str(e))
+            raise
 
     def add_turn(
         self,
@@ -175,15 +178,13 @@ class SessionMemory:
     def end_session(self, call_id: str) -> Optional[CallSession]:
         """
         Mark session as ended.
-        Note: Redis TTL handles actual cleanup.
+        Note: Cosmos DB TTL will automatically delete after COSMOS_DB_SESSION_TTL_SECONDS.
         We keep the data briefly for summary generation.
         """
         session = self.get_session(call_id)
         if session:
             session.ended_at = datetime.utcnow().isoformat()
             self._save(session)
-            # Reduce TTL to 10 minutes post-call (enough for summary)
-            self._redis.expire(self._session_key(call_id), 600)
             logger.info("session_ended", call_id=call_id)
         return session
 

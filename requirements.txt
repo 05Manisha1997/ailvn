@@ -14,10 +14,6 @@ azure-identity==1.17.0
 azure-search-documents==11.6.0b4
 azure-cosmos==4.7.0
 
-# Redis (session memory)
-redis==5.0.4
-redis[asyncio]
-
 # CrewAI & LangChain
 crewai==0.36.0
 crewai-tools==0.4.6

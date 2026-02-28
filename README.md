@@ -37,7 +37,7 @@ voice-navigator/
 │   ├── vector_store.py          # ChromaDB vector store
 │   └── retriever.py             # Semantic search & context assembly
 ├── memory/
-│   ├── session_memory.py        # Redis-backed session storage
+│   ├── session_memory.py        # Cosmos DB-backed session storage (temporary)
 │   └── temp_doc_store.py        # Temporary document memory
 ├── portal/
 │   ├── response_portal.py       # Intent → template mapping engine
@@ -86,7 +86,7 @@ voice-navigator/
 ### 1. Prerequisites
 - Python 3.11+
 - Node.js 18+ (for portal UI)
-- Docker + Docker Compose (for Redis, ChromaDB)
+- Docker + Docker Compose (for ChromaDB)
 - Azure account (free tier sufficient for MVP)
 
 ### 2. Clone & Install
@@ -106,7 +106,7 @@ cp .env.example .env
 
 ### 4. Start Infrastructure
 ```bash
-docker-compose up -d  # Starts Redis + ChromaDB
+docker-compose up -d  # Starts ChromaDB
 ```
 
 ### 5. Run the API Server
@@ -127,7 +127,6 @@ cd portal_ui && npm install && npm start
 | ElevenLabs | 10K chars/month |
 | Azure Functions | 1M executions/month |
 | Azure Cosmos DB | 1000 RU/s, 25GB |
-| Azure Cache for Redis | 250MB |
 | Azure Comm. Services | 100 emails/day |
 | ChromaDB | Open source, unlimited |
 | CrewAI | Open source, unlimited |

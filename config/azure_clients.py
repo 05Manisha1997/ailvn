@@ -80,18 +80,6 @@ def get_blob_service_client():
     )
 
 
-def get_redis_client():
-    """Redis client (not cached — connections should be managed per-use)."""
-    import redis
-    return redis.Redis(
-        host=settings.redis_host,
-        port=settings.redis_port,
-        password=settings.redis_password or None,
-        ssl=settings.redis_ssl,
-        decode_responses=True,
-    )
-
-
 def get_chroma_client():
     """ChromaDB client (HTTP client pointing to Docker container)."""
     import chromadb
