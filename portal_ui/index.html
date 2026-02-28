@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Navigator — Admin Portal</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+           background: #0F172A; color: #E2E8F0; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #1E293B; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+const API = 'http://localhost:8000/api';
+
+// ── Color helpers ──────────────────────────────────────────────────────────
+const INTENT_COLORS = {
+  ACCOUNT_BALANCE:    '#38BDF8', RECENT_TRANSACTIONS: '#34D399',
+  COMPLAINT:          '#F87171', PRODUCT_INFO:         '#FB923C',
+  BILLING_QUERY:      '#A78BFA', TECH_SUPPORT:         '#F472B6',
+  TRANSFER_AGENT:     '#FCD34D', LOAN_QUERY:           '#2DD4BF',
+  GENERAL_QUERY:      '#94A3B8', GOODBYE:              '#64748B',
+};
+
+const Badge = ({ label, color }) => (
+  <span style={{
+    display:'inline-block', padding:'2px 10px', borderRadius:12,
+    background: color + '22', color, border:`1px solid ${color}55`,
+    fontSize:11, fontWeight:600, letterSpacing:0.5
+  }}>{label.replace(/_/g,' ')}</span>
+);
+
+const Card = ({ children, style }) => (
+  <div style={{
+    background:'#1E293B', borderRadius:10, border:'1px solid #334155',
+    padding:20, ...style
+  }}>{children}</div>
+);
+
+const Input = ({ label, value, onChange, multiline, placeholder, style }) => (
+  <div style={{ marginBottom:14 }}>
+    {label && <div style={{ fontSize:11, color:'#94A3B8', fontWeight:600,
+      marginBottom:5, textTransform:'uppercase', letterSpacing:0.5 }}>{label}</div>}
+    {multiline
+      ? <textarea value={value} onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          style={{ width:'100%', background:'#0F172A', border:'1px solid #334155',
+            borderRadius:6, padding:'8px 12px', color:'#E2E8F0', fontSize:13,
+            resize:'vertical', minHeight:80, fontFamily:'monospace', ...style }} />
+      : <input value={value} onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          style={{ width:'100%', background:'#0F172A', border:'1px solid #334155',
+            borderRadius:6, padding:'8px 12px', color:'#E2E8F0', fontSize:13, ...style }} />
+    }
+  </div>
+);
+
+const Btn = ({ children, onClick, color='#38BDF8', outline, small, style }) => (
+  <button onClick={onClick} style={{
+    background: outline ? 'transparent' : color + '22',
+    color, border:`1px solid ${color}55`,
+    borderRadius:6, padding: small ? '5px 12px' : '8px 18px',
+    fontSize: small ? 12 : 13, fontWeight:600, cursor:'pointer',
+    transition:'all 0.15s', ...style
+  }}>{children}</button>
+);
+
+// ── MOCK DATA for demo (replace with API calls) ────────────────────────────
+const MOCK_TEMPLATES = {
+  ACCOUNT_BALANCE: {
+    intent: 'ACCOUNT_BALANCE',
+    template: 'Your current balance is {rag.balance}. Your last transaction was {rag.last_txn}.',
+    sub_routes: [
+      { id:'SR-001', label:'NEGATIVE_BALANCE', condition:'rag.balance_numeric < 0',
+        response_override:'Your account is overdrawn by {rag.overdraft_amount}. Please deposit funds.' },
+      { id:'SR-002', label:'LARGE_BALANCE', condition:'rag.balance_numeric > 100000',
+        response_override:'Your balance is {rag.balance}. Would you like wealth management info?' },
+    ],
+    doc_sources: [{ type:'text', content:'MOCK', title:'account_data' }],
+    enabled: true,
+  },
+  COMPLAINT: {
+    intent: 'COMPLAINT',
+    template: 'I understand your concern about {rag.issue_type}. Ticket {rag.ticket_id} raised. Update within {rag.resolution_time}.',
+    sub_routes: [
+      { id:'SR-003', label:'ESCALATE', condition:"rag.severity == 'high'",
+        response_override:'Due to severity, connecting you to a specialist.', next_intent:'TRANSFER_AGENT' }
+    ],
+    doc_sources: [],
+    enabled: true,
+  },
+  PRODUCT_INFO: {
+    intent: 'PRODUCT_INFO',
+    template: '{rag.product_name}: {rag.description}. Rate: {rag.rate}. Min deposit: {rag.min_deposit}.',
+    sub_routes: [],
+    doc_sources: [{ type:'azure_blob', prefix:'products/' }],
+    enabled: true,
+  },
+  BILLING_QUERY: {
+    intent: 'BILLING_QUERY',
+    template: 'Your {rag.billing_period} bill is {rag.amount}, due {rag.due_date}. Status: {rag.payment_status}.',
+    sub_routes: [],
+    doc_sources: [],
+    enabled: true,
+  },
+  TRANSFER_AGENT: {
+    intent: 'TRANSFER_AGENT',
+    template: "Connecting you to {rag.department} now. Wait: {rag.wait_time}. Ref: {rag.reference_id}.",
+    sub_routes: [],
+    doc_sources: [],
+    enabled: true,
+  },
+};
+
+const MOCK_CALLS = [
+  { call_id:'abc-001', caller_name:'John Smith', caller_phone:'+14155552671',
+    is_verified:true, current_intent:'ACCOUNT_BALANCE',
+    intent_history:['ACCOUNT_BALANCE','COMPLAINT'], turn_count:6,
+    started_at:'2024-01-15T14:30:00Z', ended_at:'2024-01-15T14:36:00Z' },
+  { call_id:'abc-002', caller_name:'Jane Doe', caller_phone:'+14155552672',
+    is_verified:true, current_intent:'PRODUCT_INFO',
+    intent_history:['PRODUCT_INFO'], turn_count:3,
+    started_at:'2024-01-15T14:45:00Z', ended_at:null },
+  { call_id:'abc-003', caller_name:'Bob Johnson', caller_phone:'+14155552673',
+    is_verified:false, current_intent:null,
+    intent_history:[], turn_count:1,
+    started_at:'2024-01-15T15:00:00Z', ended_at:'2024-01-15T15:01:00Z' },
+];
+
+// ── Pages ──────────────────────────────────────────────────────────────────
+
+function TemplatesPage() {
+  const [templates, setTemplates] = useState(MOCK_TEMPLATES);
+  const [selected, setSelected] = useState('ACCOUNT_BALANCE');
+  const [editing, setEditing] = useState(null);
+  const [saved, setSaved] = useState(false);
+
+  const t = editing || templates[selected];
+
+  const save = () => {
+    setTemplates(prev => ({ ...prev, [t.intent]: t }));
+    setEditing(null);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const addSubRoute = () => {
+    const updated = {
+      ...t,
+      sub_routes: [...t.sub_routes, {
+        id: 'SR-' + Date.now(),
+        label: 'NEW_ROUTE',
+        condition: 'rag.field == value',
+        response_override: 'Override response here.'
+      }]
+    };
+    setEditing(updated);
+  };
+
+  const removeSubRoute = (id) => {
+    setEditing({ ...t, sub_routes: t.sub_routes.filter(sr => sr.id !== id) });
+  };
+
+  const updateSubRoute = (id, field, value) => {
+    setEditing({
+      ...t,
+      sub_routes: t.sub_routes.map(sr => sr.id === id ? { ...sr, [field]: value } : sr)
+    });
+  };
+
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'220px 1fr', gap:20 }}>
+      {/* Sidebar */}
+      <div>
+        <div style={{ fontSize:11, color:'#64748B', fontWeight:700,
+          textTransform:'uppercase', letterSpacing:1, marginBottom:10 }}>Intents</div>
+        {Object.keys(templates).map(intent => (
+          <div key={intent} onClick={() => { setSelected(intent); setEditing(null); }}
+            style={{
+              padding:'9px 12px', borderRadius:7, marginBottom:4, cursor:'pointer',
+              background: selected === intent ? '#1E3A5F' : 'transparent',
+              border: `1px solid ${selected === intent ? '#38BDF8' : 'transparent'}`,
+              display:'flex', alignItems:'center', gap:8
+            }}>
+            <div style={{ width:8, height:8, borderRadius:'50%',
+              background: INTENT_COLORS[intent] || '#64748B' }} />
+            <span style={{ fontSize:12, fontWeight:600 }}>{intent.replace(/_/g,' ')}</span>
+            {!templates[intent].enabled &&
+              <span style={{ marginLeft:'auto', fontSize:9, color:'#F87171' }}>OFF</span>}
+          </div>
+        ))}
+      </div>
+
+      {/* Editor */}
+      <div>
+        <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:16 }}>
+          <Badge label={t.intent} color={INTENT_COLORS[t.intent] || '#64748B'} />
+          <div style={{ flex:1 }} />
+          {saved && <span style={{ color:'#34D399', fontSize:13 }}>✓ Saved</span>}
+          {editing && <Btn onClick={() => setEditing(null)} outline color='#64748B' small>Cancel</Btn>}
+          <Btn onClick={save} color='#34D399' small>Save Template</Btn>
+        </div>
+
+        <Card style={{ marginBottom:16 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#94A3B8',
+            textTransform:'uppercase', letterSpacing:0.5, marginBottom:14 }}>Response Template</div>
+          <Input
+            label="Template Text (use {rag.fieldname} for dynamic slots)"
+            value={t.template}
+            onChange={val => setEditing({ ...(editing || t), template: val })}
+            multiline
+            placeholder="Your balance is {rag.balance}..."
+            style={{ minHeight:70 }}
+          />
+          <div style={{ fontSize:11, color:'#64748B' }}>
+            Available slots: {[...t.template.matchAll(/\{rag\.(\w+)\}/g)].map(m =>
+              <code key={m[1]} style={{ background:'#0F172A', padding:'1px 6px',
+                borderRadius:4, marginLeft:4, color:'#38BDF8' }}>{m[1]}</code>
+            )}
+          </div>
+        </Card>
+
+        {/* Sub Routes */}
+        <Card>
+          <div style={{ display:'flex', alignItems:'center', marginBottom:14 }}>
+            <div style={{ fontSize:12, fontWeight:700, color:'#94A3B8',
+              textTransform:'uppercase', letterSpacing:0.5 }}>Sub-Routes ({t.sub_routes.length})</div>
+            <Btn onClick={addSubRoute} color='#A78BFA' small style={{ marginLeft:'auto' }}>+ Add Route</Btn>
+          </div>
+          {t.sub_routes.length === 0
+            ? <div style={{ color:'#475569', fontSize:13, textAlign:'center', padding:20 }}>
+                No sub-routes. Add conditions for branching responses.
+              </div>
+            : t.sub_routes.map(sr => (
+              <div key={sr.id} style={{ background:'#0F172A', borderRadius:8, padding:14,
+                marginBottom:10, border:'1px solid #1E3A5F' }}>
+                <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+                  <input value={sr.label}
+                    onChange={e => updateSubRoute(sr.id, 'label', e.target.value)}
+                    style={{ background:'transparent', border:'1px solid #334155', borderRadius:5,
+                      padding:'4px 10px', color:'#A78BFA', fontSize:12, fontWeight:700, width:160 }} />
+                  <code style={{ flex:1, background:'#1E293B', border:'none', borderRadius:5,
+                    padding:'4px 10px', color:'#FCD34D', fontSize:11 }}>
+                    <input value={sr.condition}
+                      onChange={e => updateSubRoute(sr.id, 'condition', e.target.value)}
+                      style={{ background:'transparent', border:'none', outline:'none',
+                        color:'#FCD34D', fontSize:11, fontFamily:'monospace', width:'100%' }} />
+                  </code>
+                  <Btn onClick={() => removeSubRoute(sr.id)} color='#F87171' outline small>✕</Btn>
+                </div>
+                <textarea value={sr.response_override}
+                  onChange={e => updateSubRoute(sr.id, 'response_override', e.target.value)}
+                  style={{ width:'100%', background:'#1E293B', border:'1px solid #334155',
+                    borderRadius:5, padding:'6px 10px', color:'#E2E8F0', fontSize:12,
+                    resize:'vertical', minHeight:50, fontFamily:'inherit' }} />
+                {sr.next_intent && (
+                  <div style={{ marginTop:6, fontSize:11, color:'#FB923C' }}>
+                    → Routes to: <Badge label={sr.next_intent} color='#FB923C' />
+                  </div>
+                )}
+              </div>
+            ))
+          }
+        </Card>
+
+        {/* Doc Sources */}
+        <Card style={{ marginTop:16 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#94A3B8',
+            textTransform:'uppercase', letterSpacing:0.5, marginBottom:12 }}>Document Sources for RAG</div>
+          {t.doc_sources.length === 0
+            ? <div style={{ color:'#475569', fontSize:13 }}>No document sources configured. RAG will use general context.</div>
+            : t.doc_sources.map((src, i) => (
+              <div key={i} style={{ display:'flex', gap:8, alignItems:'center',
+                background:'#0F172A', borderRadius:6, padding:'8px 12px', marginBottom:6 }}>
+                <Badge label={src.type.toUpperCase()} color='#2DD4BF' />
+                <span style={{ fontSize:12, color:'#94A3B8', fontFamily:'monospace' }}>
+                  {src.prefix || src.title || src.content?.substring(0, 30) || '—'}
+                </span>
+              </div>
+            ))
+          }
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function LiveCallsPage() {
+  const [calls] = useState(MOCK_CALLS.filter(c => !c.ended_at));
+  const [selected, setSelected] = useState(null);
+
+  const activeCalls = calls;
+
+  return (
+    <div>
+      <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:20 }}>
+        <div style={{ width:8, height:8, borderRadius:'50%', background:'#34D399',
+          boxShadow:'0 0 8px #34D399' }} />
+        <span style={{ fontSize:13, color:'#34D399', fontWeight:700 }}>
+          {activeCalls.length} Active Call{activeCalls.length !== 1 ? 's' : ''}
+        </span>
+        <span style={{ color:'#475569', fontSize:12 }}>Auto-refreshing every 5s</span>
+      </div>
+
+      {activeCalls.length === 0
+        ? <Card><div style={{ textAlign:'center', padding:40, color:'#475569' }}>
+            No active calls right now.
+          </div></Card>
+        : activeCalls.map(call => (
+          <Card key={call.call_id} style={{ marginBottom:12,
+            border: selected === call.call_id ? '1px solid #38BDF8' : '1px solid #334155',
+            cursor:'pointer' }}
+            onClick={() => setSelected(selected === call.call_id ? null : call.call_id)}>
+            <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+              <div style={{ width:36, height:36, borderRadius:'50%', background:'#1E3A5F',
+                display:'flex', alignItems:'center', justifyContent:'center',
+                fontSize:14, fontWeight:700, color:'#38BDF8' }}>
+                {(call.caller_name || 'U')[0]}
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:700, fontSize:14 }}>
+                  {call.caller_name || 'Unknown Caller'}
+                  {call.is_verified && <span style={{ marginLeft:8, fontSize:10,
+                    color:'#34D399' }}>✓ Verified</span>}
+                </div>
+                <div style={{ fontSize:12, color:'#64748B' }}>{call.caller_phone}</div>
+              </div>
+              <div style={{ textAlign:'right' }}>
+                {call.current_intent &&
+                  <Badge label={call.current_intent} color={INTENT_COLORS[call.current_intent] || '#64748B'} />}
+                <div style={{ fontSize:11, color:'#475569', marginTop:4 }}>
+                  {call.turn_count} turns
+                </div>
+              </div>
+              <Btn color='#F87171' small outline>Transfer to Agent</Btn>
+            </div>
+
+            {selected === call.call_id && (
+              <div style={{ marginTop:14, paddingTop:14, borderTop:'1px solid #334155' }}>
+                <div style={{ fontSize:11, color:'#64748B', marginBottom:8 }}>Intent Journey</div>
+                <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                  {call.intent_history.map((intent, i) => (
+                    <div key={i} style={{ display:'flex', alignItems:'center', gap:4 }}>
+                      {i > 0 && <span style={{ color:'#475569' }}>→</span>}
+                      <Badge label={intent} color={INTENT_COLORS[intent] || '#64748B'} />
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop:12, display:'flex', gap:8 }}>
+                  <Btn color='#38BDF8' small>View Full Context</Btn>
+                  <Btn color='#A78BFA' small outline>View Documents</Btn>
+                </div>
+              </div>
+            )}
+          </Card>
+        ))
+      }
+    </div>
+  );
+}
+
+function CallHistoryPage() {
+  const [calls] = useState(MOCK_CALLS);
+  const [filter, setFilter] = useState('');
+
+  const filtered = calls.filter(c =>
+    !filter ||
+    c.caller_name?.toLowerCase().includes(filter.toLowerCase()) ||
+    c.caller_phone?.includes(filter)
+  );
+
+  return (
+    <div>
+      <div style={{ marginBottom:16 }}>
+        <Input placeholder="Search by name or phone..."
+          value={filter} onChange={setFilter} />
+      </div>
+
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:20 }}>
+        {[
+          { label:'Total Calls', value:calls.length, color:'#38BDF8' },
+          { label:'Verified', value:calls.filter(c=>c.is_verified).length, color:'#34D399' },
+          { label:'Escalated', value:calls.filter(c=>c.intent_history.includes('TRANSFER_AGENT')).length, color:'#F87171' },
+        ].map(s => (
+          <Card key={s.label} style={{ textAlign:'center' }}>
+            <div style={{ fontSize:32, fontWeight:800, color:s.color }}>{s.value}</div>
+            <div style={{ fontSize:12, color:'#64748B', marginTop:4 }}>{s.label}</div>
+          </Card>
+        ))}
+      </div>
+
+      {filtered.map(call => (
+        <Card key={call.call_id} style={{ marginBottom:10 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+            <div style={{ flex:1 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ fontWeight:700 }}>{call.caller_name || 'Unknown'}</span>
+                {call.is_verified
+                  ? <span style={{ fontSize:10, color:'#34D399' }}>✓ Verified</span>
+                  : <span style={{ fontSize:10, color:'#F87171' }}>✗ Unverified</span>}
+              </div>
+              <div style={{ fontSize:12, color:'#64748B', marginTop:2 }}>
+                {call.caller_phone} • {call.turn_count} turns •{' '}
+                {new Date(call.started_at).toLocaleString()}
+              </div>
+              <div style={{ display:'flex', gap:4, marginTop:6, flexWrap:'wrap' }}>
+                {call.intent_history.map(intent => (
+                  <Badge key={intent} label={intent} color={INTENT_COLORS[intent] || '#64748B'} />
+                ))}
+              </div>
+            </div>
+            <div style={{ display:'flex', gap:6 }}>
+              <Badge
+                label={call.ended_at ? 'Ended' : 'Active'}
+                color={call.ended_at ? '#64748B' : '#34D399'}
+              />
+              <Btn color='#38BDF8' small outline>Summary</Btn>
+            </div>
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// ── App Shell ──────────────────────────────────────────────────────────────
+const NAV_ITEMS = [
+  { id:'templates', label:'Response Templates', icon:'⚙️' },
+  { id:'live',      label:'Live Calls',         icon:'📞' },
+  { id:'history',   label:'Call History',       icon:'📋' },
+];
+
+function App() {
+  const [page, setPage] = useState('templates');
+
+  return (
+    <div style={{ display:'flex', minHeight:'100vh' }}>
+      {/* Sidebar */}
+      <div style={{ width:240, background:'#0B1120', borderRight:'1px solid #1E293B',
+        padding:20, display:'flex', flexDirection:'column' }}>
+        <div style={{ marginBottom:32 }}>
+          <div style={{ fontSize:16, fontWeight:800, color:'#38BDF8', letterSpacing:-0.5 }}>
+            Voice Navigator
+          </div>
+          <div style={{ fontSize:11, color:'#475569', marginTop:2 }}>Admin Portal</div>
+        </div>
+
+        {NAV_ITEMS.map(item => (
+          <div key={item.id} onClick={() => setPage(item.id)}
+            style={{
+              display:'flex', alignItems:'center', gap:10,
+              padding:'10px 12px', borderRadius:7, marginBottom:4,
+              cursor:'pointer',
+              background: page === item.id ? '#1E3A5F' : 'transparent',
+              color: page === item.id ? '#38BDF8' : '#64748B',
+              fontWeight: page === item.id ? 700 : 400,
+              fontSize:13, transition:'all 0.15s'
+            }}>
+            <span>{item.icon}</span>
+            {item.label}
+          </div>
+        ))}
+
+        <div style={{ marginTop:'auto', padding:'12px 0',
+          borderTop:'1px solid #1E293B', fontSize:11, color:'#334155' }}>
+          <div>API: localhost:8000</div>
+          <div style={{ marginTop:4, display:'flex', alignItems:'center', gap:6 }}>
+            <div style={{ width:6, height:6, borderRadius:'50%', background:'#34D399' }} />
+            System Online
+          </div>
+        </div>
+      </div>
+
+      {/* Main */}
+      <div style={{ flex:1, padding:28, overflowY:'auto' }}>
+        <div style={{ fontSize:20, fontWeight:800, marginBottom:6 }}>
+          {NAV_ITEMS.find(n => n.id === page)?.icon}{' '}
+          {NAV_ITEMS.find(n => n.id === page)?.label}
+        </div>
+        <div style={{ color:'#475569', fontSize:13, marginBottom:24 }}>
+          {page === 'templates' && 'Configure intent mappings, response templates, and sub-routing logic.'}
+          {page === 'live' && 'Monitor active calls in real-time. Transfer to live agents if needed.'}
+          {page === 'history' && 'Review completed calls, intent journeys, and summaries.'}
+        </div>
+
+        {page === 'templates' && <TemplatesPage />}
+        {page === 'live'      && <LiveCallsPage />}
+        {page === 'history'   && <CallHistoryPage />}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

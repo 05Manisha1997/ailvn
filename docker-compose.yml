@@ -1,0 +1,76 @@
+version: "3.9"
+
+services:
+  # ── Redis (Session & Temp Memory) ────────────
+  redis:
+    image: redis:7-alpine
+    container_name: voice-nav-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 250mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── ChromaDB (Vector Store) ───────────────────
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: voice-nav-chroma
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Ollama (Local LLM — optional) ────────────
+  # Uncomment if you want free local LLM instead of Azure OpenAI
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: voice-nav-ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+
+  # ── Voice Navigator API ───────────────────────
+  api:
+    build: .
+    container_name: voice-nav-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+      - CHROMA_HOST=chromadb
+    depends_on:
+      redis:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+    volumes:
+      - ./chroma_data:/app/chroma_data
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  redis_data:
+  chroma_data:
+  ollama_data:
