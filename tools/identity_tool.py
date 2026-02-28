@@ -12,7 +12,7 @@ from config import settings
 DEMO_POLICYHOLDERS: dict[str, dict] = {
     "POL-001": {
         "policy_id": "POL-001",
-        "name": "Sarah O'Brien",
+        "name": "Joshua",
         "dob": "1985-03-14",
         "plan_name": "PremiumCare Plus",
         "plan_type": "comprehensive",
@@ -23,7 +23,7 @@ DEMO_POLICYHOLDERS: dict[str, dict] = {
     },
     "POL-002": {
         "policy_id": "POL-002",
-        "name": "James Murphy",
+        "name": "James George",
         "dob": "1972-07-22",
         "plan_name": "StandardCare",
         "plan_type": "standard",
@@ -34,7 +34,7 @@ DEMO_POLICYHOLDERS: dict[str, dict] = {
     },
     "POL-003": {
         "policy_id": "POL-003",
-        "name": "Aoife Kelly",
+        "name": "Jonah",
         "dob": "1990-11-05",
         "plan_name": "BasicCare",
         "plan_type": "basic",
@@ -78,6 +78,7 @@ def verify_identity_tool(policy_id: str, dob: str, name: str) -> str:
         policy_id: The caller's policy number (e.g. POL-001).
         dob: Date of birth in YYYY-MM-DD format.
         name: Caller's full name.
+        In action, it must be registered phone number, unique member id, and dob
 
     Returns:
         JSON string with fields: verified (bool), policy_id, member_name, plan_name,

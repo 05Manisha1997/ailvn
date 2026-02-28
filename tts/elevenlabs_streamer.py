@@ -31,7 +31,7 @@ async def stream_tts_to_call(text: str, websocket) -> None:
     }
     payload = {
         "text": text,
-        "model_id": "eleven_turbo_v2",       # Lowest latency model
+        "model_id": "eleven_multilingual_v2",       # Lowest latency model
         "voice_settings": {
             "stability": 0.75,
             "similarity_boost": 0.85,
@@ -66,7 +66,7 @@ async def synthesize_to_bytes(text: str) -> bytes:
     }
     payload = {
         "text": text,
-        "model_id": "eleven_turbo_v2",
+        "model_id": "eleven_multilingual_v2",
         "voice_settings": {
             "stability": 0.75,
             "similarity_boost": 0.85,

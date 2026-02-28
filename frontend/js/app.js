@@ -31,6 +31,7 @@ function showView(viewName) {
     simulator:  ['Call Simulator', 'Test the AI agent pipeline'],
     analytics:  ['Analytics', 'Performance metrics & insights'],
     policies:   ['Policy Manager', 'Manage policyholders & documents'],
+    templates:  ['Response Templates', 'Manage agent response formatting'],
   };
   const [title, sub] = titles[viewName] || ['Dashboard', ''];
   document.getElementById('view-title').textContent = title;

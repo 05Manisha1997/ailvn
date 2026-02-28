@@ -23,6 +23,9 @@ from config import settings
 from navigator import InsuranceVoiceNavigator
 from agents.tasks import build_crew_for_query
 from tts.elevenlabs_streamer import synthesize_to_bytes
+from tools.translator_api import translator
+from tools.template_verifier import verify_and_fix_template
+from templates.response_templates import get_all_templates, upsert_template
 
 router = APIRouter()
 
@@ -127,27 +130,42 @@ async def simulate_call_turn(body: SimulateRequest):
     """
     start = time.monotonic()
 
+    # Determine original language
+    detected_lang = await translator.detect_language(body.message)
+    
+    # Translate to English for CrewAI
+    if detected_lang != "en":
+        english_input = await translator.translate_text(body.message, target_lang="en")
+    else:
+        english_input = body.message
+
     loop = asyncio.get_event_loop()
     agent_response = await loop.run_in_executor(
         None,
         lambda: build_crew_for_query(
-            caller_input=body.message,
+            caller_input=english_input,
             caller_id=body.caller_id,
             conversation_history=body.conversation_history,
             demo_mode=body.demo_mode,
         ),
     )
 
+    # Translate back to caller's language
+    if detected_lang != "en":
+        final_response = await translator.translate_text(agent_response, target_lang=detected_lang)
+    else:
+        final_response = agent_response
+
     updated_history = body.conversation_history + [
         {"role": "user", "content": body.message},
-        {"role": "assistant", "content": agent_response},
+        {"role": "assistant", "content": final_response},
     ]
     elapsed_ms = int((time.monotonic() - start) * 1000)
 
     return SimulateResponse(
         caller_id=body.caller_id,
         user_message=body.message,
-        agent_response=agent_response,
+        agent_response=final_response,
         conversation_history=updated_history,
         elapsed_ms=elapsed_ms,
     )
@@ -171,6 +189,27 @@ async def generate_tts(body: TTSRequest):
     
     from fastapi.responses import Response
     return Response(content=audio_bytes, media_type="audio/mpeg")
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  Template APIs
+# ────────────────────────────────────────────────────────────────────────────
+
+class TemplateRequest(BaseModel):
+    intent_key: str
+    template: str
+
+@router.get("/templates")
+async def list_templates():
+    """Return all current response templates."""
+    return get_all_templates()
+
+@router.post("/templates")
+async def add_template(body: TemplateRequest):
+    """Clean a user-submitted template and save it."""
+    clean_text = await verify_and_fix_template(body.intent_key, body.template)
+    upsert_template(body.intent_key, clean_text)
+    return {"status": "success", "clean_template": clean_text, "intent_key": body.intent_key}
 
 
 # ────────────────────────────────────────────────────────────────────────────
