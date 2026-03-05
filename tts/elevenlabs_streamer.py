@@ -39,9 +39,9 @@ async def stream_tts_to_call(text: str, websocket) -> None:
             model_id="eleven_turbo_v2",       # Lowest latency model
             output_format="pcm_16000",        # Format expected by Azure ACS
             voice_settings={
-                "stability": 0.75,
-                "similarity_boost": 0.85,
-                "style": 0.2,
+                "stability": 0.40,
+                "similarity_boost": 0.75,
+                "style": 0.35,
                 "use_speaker_boost": True,
             }
         )
@@ -68,8 +68,10 @@ async def synthesize_to_bytes(text: str) -> bytes:
             model_id="eleven_turbo_v2",
             output_format="mp3_44100_128",
             voice_settings={
-                "stability": 0.75,
-                "similarity_boost": 0.85,
+                "stability": 0.40,
+                "similarity_boost": 0.75,
+                "style": 0.35,
+                "use_speaker_boost": True,
             }
         )
         
