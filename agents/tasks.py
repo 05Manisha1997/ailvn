@@ -11,8 +11,27 @@ from templates.response_templates import TEMPLATES, fill_template
 
 # ── Demo simulation (no real LLM calls) ──────────────────────────────────────
 
-def _demo_response(caller_input: str, policy_id: str) -> str:
+def _demo_response(caller_input: str, member_id: str, caller_phone: str) -> str:
     """Fast demo path — keyword-matched response, no API calls."""
+    from tools.identity_tool import _verify_identity_logic
+    
+    # Simple heuristic to extract email and dob for demo verification
+    # In real LLM mode, the agent handles this much better.
+    email = "john.smith1@email.com" if "john.smith1@email.com" in caller_input else ""
+    dob = "1990-01-15" if "1990-01-15" in caller_input or "january 15" in caller_input.lower() else ""
+    
+    # Perform verification check using the logic function directly
+    v_result = _verify_identity_logic(member_id=member_id, dob=dob, email=email, phone=caller_phone)
+    
+    if not v_result.get("verified"):
+        if not email or not dob:
+             # If details are missing, prompt for them
+             missing = []
+             if not email: missing.append("email")
+             if not dob: missing.append("date of birth")
+             return fill_template("identity_prompt", missing_field=" and ".join(missing))
+        return fill_template("identity_failed")
+
     q = caller_input.lower()
     hospital_match = re.search(
         r"(st\.?\s*vincent|mater|beacon|blackrock|dublin city|clinic|hospital)", q
@@ -67,6 +86,7 @@ def _demo_response(caller_input: str, policy_id: str) -> str:
 def build_crew_for_query(
     caller_input: str,
     caller_id: str,
+    caller_phone: str,
     conversation_history: list,
     demo_mode: bool = False,
 ) -> str:
@@ -76,6 +96,7 @@ def build_crew_for_query(
     Args:
         caller_input: Transcribed text from the caller.
         caller_id: Caller's policy ID extracted from context or provided directly.
+        caller_phone: Caller's phone number extracted from the call system.
         conversation_history: List of {role, content} dicts from this call session.
         demo_mode: If True, bypass real API calls and return a demo answer.
 
@@ -87,7 +108,7 @@ def build_crew_for_query(
     llm = _make_llm()
 
     if demo_mode or llm is None:
-        return _demo_response(caller_input, caller_id)
+        return _demo_response(caller_input, caller_id, caller_phone)
 
     # Build fresh agent instances for this query (required by CrewAI v1.x)
     from crewai import Task, Crew, Process
@@ -100,17 +121,18 @@ def build_crew_for_query(
     # ── Task 1: Identity Verification ──────────────────────────────────────
     verify_task = Task(
         description=f"""
-        Caller ID from system: {caller_id}
+        Caller Phone (Automatic): {caller_phone}
         Conversation so far: {json.dumps(conversation_history, indent=2)}
 
         Use the Identity Verifier tool to verify this caller.
-        Extract the policy number, name, and date of birth from the conversation history.
-        If any detail is missing, specify which field is needed.
+        Extract the alphanumeric member_id, email, and date of birth from the conversation history.
+        Pass the 'null' or empty string if a field is not yet provided.
+        The 'phone' argument MUST be exactly: {caller_phone}
         """,
         expected_output=(
             "JSON: verified (bool), policy_id, member_name, plan_name, "
             "deductible_remaining, claims_remaining. "
-            "If not verified: verified=False and reason."
+            "If not verified: verified=False and reason. Mention if information is missing."
         ),
         agent=identity_agent,
     )

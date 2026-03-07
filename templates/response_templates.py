@@ -39,8 +39,10 @@ DEFAULT_TEMPLATES: dict[str, str] = {
         "Could you please provide your {missing_field}?"
     ),
     "identity_failed": (
-        "I'm sorry, I was unable to verify your identity with the information provided. "
-        "Please call back with your policy number and date of birth ready."
+        "I'm sorry, but I was unable to verify your identity with the information provided. "
+        "Unfortunately, I cannot proceed with your request as an unverified user. "
+        "Please have your Member ID, registered email, and date of birth ready and call us back. "
+        "Thank you for your understanding."
     ),
     "fallback_human": (
         "I wasn't able to find a clear answer for your query. "
@@ -48,7 +50,7 @@ DEFAULT_TEMPLATES: dict[str, str] = {
     ),
     "greeting": (
         "Thank you for calling InsureCo. "
-        "Please state your policy number and date of birth to begin."
+        "To get started, please state your alphanumeric Member ID, your registered email address, and your date of birth."
     ),
     "farewell": (
         "Thank you for calling InsureCo. "

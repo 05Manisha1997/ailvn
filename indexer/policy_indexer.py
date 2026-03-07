@@ -3,9 +3,14 @@ indexer/policy_indexer.py
 Offline pipeline: PDF → chunks → embeddings → Azure AI Search index.
 Run: python indexer/policy_indexer.py --pdf path/to/policy.pdf --policy-id POL-001
 """
+import sys
 import os
 import argparse
 import json
+
+# Add project root to sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from config import settings
 
 

@@ -28,10 +28,10 @@ function showView(viewName) {
 
   const titles = {
     dashboard: ['Live Calls', 'Real-time call monitoring'],
-    simulator:  ['Call Simulator', 'Test the AI agent pipeline'],
-    analytics:  ['Analytics', 'Performance metrics & insights'],
-    policies:   ['Policy Manager', 'Manage policyholders & documents'],
-    templates:  ['Response Templates', 'Manage agent response formatting'],
+    simulator: ['Call Simulator', 'Test the AI agent pipeline'],
+    analytics: ['Analytics', 'Performance metrics & insights'],
+    policies: ['Policy Manager', 'Manage policyholders & documents'],
+    templates: ['Response Templates', 'Manage agent response formatting'],
   };
   const [title, sub] = titles[viewName] || ['Dashboard', ''];
   document.getElementById('view-title').textContent = title;
@@ -88,7 +88,7 @@ function showToast(message, type = 'success') {
 // ── Time formatter ───────────────────────────────────────────────────────────
 function timeAgo(isoString) {
   const diff = (Date.now() - new Date(isoString).getTime()) / 1000;
-  if (diff < 60)  return `${Math.floor(diff)}s ago`;
+  if (diff < 60) return `${Math.floor(diff)}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   return `${Math.floor(diff / 3600)}h ago`;
 }
@@ -99,7 +99,22 @@ function formatDuration(seconds) {
   return `${m}:${s}`;
 }
 
+// ── Theme Toggle ─────────────────────────────────────────────────────────────
+window.toggleTheme = function () {
+  console.log("Toggle Theme Clicked");
+  const body = document.body;
+  body.classList.toggle('light-theme');
+  const isLight = body.classList.contains('light-theme');
+  localStorage.setItem('theme', isLight ? 'light' : 'dark');
+  console.log("Theme set to:", isLight ? 'light' : 'dark');
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  console.log("App Init...");
+  const savedTheme = localStorage.getItem('theme');
+  if (savedTheme === 'light') {
+    document.body.classList.add('light-theme');
+  }
   showView('dashboard');
 });

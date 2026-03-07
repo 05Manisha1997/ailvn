@@ -38,7 +38,8 @@ _active_calls: dict[str, dict] = {}
 # ────────────────────────────────────────────────────────────────────────────
 
 class SimulateRequest(BaseModel):
-    caller_id: str = "DEMO-001"
+    caller_id: str = "POL-001"
+    caller_phone: str = "+353-87-111-2233"
     message: str
     conversation_history: list = []
     demo_mode: bool = True
@@ -108,8 +109,9 @@ async def audio_stream(websocket: WebSocket, call_id: str):
     await websocket.accept()
     _active_calls[call_id] = _active_calls.get(call_id, {})
     _active_calls[call_id]["status"] = "active"
+    caller_phone = _active_calls[call_id].get("caller_id", "unknown")
 
-    navigator = InsuranceVoiceNavigator(call_id=call_id)
+    navigator = InsuranceVoiceNavigator(call_id=call_id, caller_phone=caller_phone)
     try:
         await navigator.run(websocket)
     except WebSocketDisconnect:
@@ -145,6 +147,7 @@ async def simulate_call_turn(body: SimulateRequest):
         lambda: build_crew_for_query(
             caller_input=english_input,
             caller_id=body.caller_id,
+            caller_phone=body.caller_phone,
             conversation_history=body.conversation_history,
             demo_mode=body.demo_mode,
         ),

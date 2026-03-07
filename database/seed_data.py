@@ -3,6 +3,12 @@ database/seed_data.py
 Seeds 5 sample policyholders into Cosmos DB.
 Run: python database/seed_data.py
 """
+import sys
+import os
+
+# Add project root to sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from database.cosmos_client import db
 
 SAMPLE_POLICYHOLDERS = [

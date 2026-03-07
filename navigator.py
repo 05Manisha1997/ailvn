@@ -28,8 +28,9 @@ class InsuranceVoiceNavigator:
     5. Repeat until call ends
     """
 
-    def __init__(self, call_id: str, demo_mode: bool = True):
+    def __init__(self, call_id: str, caller_phone: str = "unknown", demo_mode: bool = True):
         self.call_id = call_id
+        self.caller_phone = caller_phone
         self.demo_mode = demo_mode or not settings.azure_speech_key
         self.conversation_history: list[dict] = []
         self.verified = False
@@ -91,6 +92,7 @@ class InsuranceVoiceNavigator:
                 lambda: build_crew_for_query(
                     caller_input=english_input,
                     caller_id=self.policy_id or self.call_id,
+                    caller_phone=self.caller_phone,
                     conversation_history=self.conversation_history,
                     demo_mode=self.demo_mode,
                 ),
