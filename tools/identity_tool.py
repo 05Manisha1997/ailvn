@@ -63,15 +63,31 @@ def _get_policyholder(member_id: str) -> dict | None:
 
 def _verify_identity_logic(member_id: str, dob: str, email: str, phone: str) -> dict:
     """Core verification logic returning a dictionary."""
-    record = _get_policyholder(member_id)
+    record = None
+    
+    # 1. Attempt lookup by Member ID
+    if member_id and member_id.lower() not in ["", "unknown", "null"]:
+        record = _get_policyholder(member_id)
+
+    # 2. Fallback: Lookup by Email + DOB if Member ID missing or not found (Demo/Simulation helper)
+    if not record and email and dob:
+        provided_email = email.lower().strip()
+        provided_dob = dob.replace("-", "").replace("/", "").replace(" ", "").strip()
+        
+        for k, v in DEMO_POLICYHOLDERS.items():
+            stored_email = v.get("email", "").lower().strip()
+            stored_dob = v.get("dob", "").replace("-", "").replace("/", "").replace(" ", "").strip()
+            if stored_email == provided_email and stored_dob == provided_dob:
+                record = v
+                break
 
     if not record:
         return {
             "verified": False,
-            "reason": f"No member found with ID {member_id}",
+            "reason": f"No member found with ID {member_id} or provided details.",
         }
 
-    # Normalise DOB comparison (strip dashes / spaces / slashes)
+    # Normalise DOB comparison
     stored_dob = record.get("dob", "").replace("-", "").replace(" ", "").replace("/", "")
     provided_dob = dob.replace("-", "").replace("/", "").replace(" ", "").strip()
 
@@ -79,14 +95,20 @@ def _verify_identity_logic(member_id: str, dob: str, email: str, phone: str) -> 
     stored_email = record.get("email", "").lower().strip()
     provided_email = email.lower().strip()
 
-    # Normalise Phone comparison (strip everything but digits and +)
+    # Normalise Phone comparison
     def clean_phone(p):
         return "".join(c for c in p if c.isdigit() or c == "+")
 
     stored_phone = clean_phone(record.get("phone", ""))
     provided_phone = clean_phone(phone)
 
-    if stored_dob != provided_dob or stored_email != provided_email or stored_phone != provided_phone:
+    # Verification criteria
+    # In real production, we'd be strict. In this hackathon demo, we allow 
+    # verification if (Email AND DOB match) OR (MemberID matches AND Phone matches).
+    email_dob_match = (stored_email == provided_email and stored_dob == provided_dob)
+    phone_id_match = (record["mem_id"].upper() == member_id.upper() and stored_phone == provided_phone)
+
+    if not (email_dob_match or phone_id_match):
         return {
             "verified": False,
             "reason": "Provided details do not match our records.",

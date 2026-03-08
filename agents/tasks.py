@@ -15,17 +15,31 @@ def _demo_response(caller_input: str, member_id: str, caller_phone: str) -> str:
     """Fast demo path — keyword-matched response, no API calls."""
     from tools.identity_tool import _verify_identity_logic
     
-    # Simple heuristic to extract email and dob for demo verification
-    # In real LLM mode, the agent handles this much better.
-    email = "john.smith1@email.com" if "john.smith1@email.com" in caller_input else ""
-    dob = "1990-01-15" if "1990-01-15" in caller_input or "january 15" in caller_input.lower() else ""
+    # ── Smarter Heuristics for Demo ──────────────────────────────────────────
+    # Extract Email
+    email_match = re.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", caller_input)
+    email = email_match.group(0) if email_match else ""
     
-    # Perform verification check using the logic function directly
+    # Extract DOB (Supports YYYY-MM-DD or Month Day YYYY)
+    dob = ""
+    dob_iso = re.search(r"(\d{4}-\d{2}-\d{2})", caller_input)
+    if dob_iso:
+        dob = dob_iso.group(1)
+    elif "january 15" in caller_input.lower() and "1990" in caller_input:
+        dob = "1990-01-15"
+    elif "march 14" in caller_input.lower() and "1985" in caller_input:
+        dob = "1985-03-14"
+
+    # Extract Member ID (looks for POL-XXX or just numeric 1)
+    if not member_id or member_id.lower() in ["unknown", "null"]:
+        mem_match = re.search(r"(POL-\d{3}|(?<!\d)1(?!\d))", caller_input.upper())
+        member_id = mem_match.group(0) if mem_match else "unknown"
+    
+    # Perform verification check
     v_result = _verify_identity_logic(member_id=member_id, dob=dob, email=email, phone=caller_phone)
     
     if not v_result.get("verified"):
         if not email or not dob:
-             # If details are missing, prompt for them
              missing = []
              if not email: missing.append("email")
              if not dob: missing.append("date of birth")

@@ -15,7 +15,9 @@ import time
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form
+import shutil
+import os
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -185,7 +187,7 @@ async def generate_tts(body: TTSRequest):
     If ElevenLabs is not configured, returns a flag so the frontend can fallback
     to browser-native SpeechSynthesis.
     """
-    audio_bytes = synthesize_to_bytes(body.text)
+    audio_bytes = await synthesize_to_bytes(body.text)
     if audio_bytes is None:
         # Signal to frontend to use browser TTS
         return JSONResponse(content={"fallback": True})
@@ -213,6 +215,40 @@ async def add_template(body: TemplateRequest):
     clean_text = await verify_and_fix_template(body.intent_key, body.template)
     upsert_template(body.intent_key, clean_text)
     return {"status": "success", "clean_template": clean_text, "intent_key": body.intent_key}
+
+
+@router.post("/index-policy")
+async def index_policy(
+    policy_id: str = Form(...),
+    file: UploadFile = File(...)
+):
+    """
+    Receive a PDF file and index it into Azure AI Search.
+    """
+    from indexer.policy_indexer import index_policy_document
+    
+    if not file.filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+
+    # Save temporary file
+    temp_dir = "tmp"
+    os.makedirs(temp_dir, exist_ok=True)
+    temp_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{file.filename}")
+    
+    try:
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Run indexing pipeline
+        index_policy_document(temp_path, policy_id)
+        
+        return {"status": "success", "message": f"Policy {policy_id} indexed successfully."}
+    except Exception as e:
+        print(f"[Indexing Error] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 # ────────────────────────────────────────────────────────────────────────────
