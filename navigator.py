@@ -9,6 +9,7 @@ from config import settings
 from agents.tasks import build_crew_for_query
 from tts.elevenlabs_streamer import stream_tts_to_call
 from templates.response_templates import fill_template, TEMPLATES
+from tools.translator_api import translator
 
 try:
     import azure.cognitiveservices.speech as speechsdk
@@ -27,8 +28,9 @@ class InsuranceVoiceNavigator:
     5. Repeat until call ends
     """
 
-    def __init__(self, call_id: str, demo_mode: bool = True):
+    def __init__(self, call_id: str, caller_phone: str = "unknown", demo_mode: bool = True):
         self.call_id = call_id
+        self.caller_phone = caller_phone
         self.demo_mode = demo_mode or not settings.azure_speech_key
         self.conversation_history: list[dict] = []
         self.verified = False
@@ -40,7 +42,8 @@ class InsuranceVoiceNavigator:
                 subscription=settings.azure_speech_key,
                 region=settings.azure_speech_region,
             )
-            self.speech_config.speech_recognition_language = "en-US"
+            # Enable continuous language identification
+            self.speech_config.set_property(speechsdk.PropertyId.SpeechServiceConnection_LanguageIdMode, "Continuous")
         else:
             self.speech_config = None
 
@@ -74,6 +77,12 @@ class InsuranceVoiceNavigator:
             if not transcribed_text:
                 continue
 
+            detected_lang = await translator.detect_language(transcribed_text)
+            if detected_lang != "en":
+                english_input = await translator.translate_text(transcribed_text, target_lang="en")
+            else:
+                english_input = transcribed_text
+
             self._add_to_history("user", transcribed_text)
 
             # Run CrewAI (in executor to avoid blocking the event loop)
@@ -81,17 +90,23 @@ class InsuranceVoiceNavigator:
             response_text = await loop.run_in_executor(
                 None,
                 lambda: build_crew_for_query(
-                    caller_input=transcribed_text,
+                    caller_input=english_input,
                     caller_id=self.policy_id or self.call_id,
+                    caller_phone=self.caller_phone,
                     conversation_history=self.conversation_history,
                     demo_mode=self.demo_mode,
                 ),
             )
 
-            self._add_to_history("assistant", response_text)
+            if detected_lang != "en":
+                final_response = await translator.translate_text(response_text, target_lang=detected_lang)
+            else:
+                final_response = response_text
+
+            self._add_to_history("assistant", final_response)
 
             # Stream response back as voice
-            await stream_tts_to_call(response_text, websocket)
+            await stream_tts_to_call(final_response, websocket)
 
     async def _transcribe(self, audio_bytes: bytes) -> str:
         """Azure STT for real-time transcription. Returns empty string on failure."""

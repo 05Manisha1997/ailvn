@@ -20,11 +20,16 @@ class PolicyholderDB:
         self._client = None
         self._container = None
         if COSMOS_AVAILABLE and settings.cosmos_endpoint and settings.cosmos_key:
-            self._client = CosmosClient(
-                settings.cosmos_endpoint, credential=settings.cosmos_key
-            )
-            db = self._client.get_database_client(settings.cosmos_database)
-            self._container = db.get_container_client(settings.cosmos_container)
+            try:
+                self._client = CosmosClient(
+                    settings.cosmos_endpoint, credential=settings.cosmos_key
+                )
+                db = self._client.get_database_client(settings.cosmos_database)
+                self._container = db.get_container_client(settings.cosmos_container)
+            except Exception as e:
+                print(f"Warning: Could not initialize Cosmos DB client: {e}")
+                self._client = None
+                self._container = None
 
     def get_policyholder(self, policy_id: str) -> Optional[dict]:
         """Retrieve a policyholder by policy ID."""

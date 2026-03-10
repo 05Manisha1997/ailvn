@@ -34,4 +34,8 @@ pydantic-settings>=2.3.0
 python-dotenv>=1.0.1
 aiofiles>=23.2.1
 
+# Translation
+langdetect==1.0.9
+deep-translator==1.11.4
+
 # Charts.js served via CDN – no pip package needed

@@ -11,8 +11,41 @@ from templates.response_templates import TEMPLATES, fill_template
 
 # ── Demo simulation (no real LLM calls) ──────────────────────────────────────
 
-def _demo_response(caller_input: str, policy_id: str) -> str:
+def _demo_response(caller_input: str, member_id: str, caller_phone: str) -> str:
     """Fast demo path — keyword-matched response, no API calls."""
+    from tools.identity_tool import _verify_identity_logic
+    
+    # ── Smarter Heuristics for Demo ──────────────────────────────────────────
+    # Extract Email
+    email_match = re.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", caller_input)
+    email = email_match.group(0) if email_match else ""
+    
+    # Extract DOB (Supports YYYY-MM-DD or Month Day YYYY)
+    dob = ""
+    dob_iso = re.search(r"(\d{4}-\d{2}-\d{2})", caller_input)
+    if dob_iso:
+        dob = dob_iso.group(1)
+    elif "january 15" in caller_input.lower() and "1990" in caller_input:
+        dob = "1990-01-15"
+    elif "march 14" in caller_input.lower() and "1985" in caller_input:
+        dob = "1985-03-14"
+
+    # Extract Member ID (looks for POL-XXX or just numeric 1)
+    if not member_id or member_id.lower() in ["unknown", "null"]:
+        mem_match = re.search(r"(POL-\d{3}|(?<!\d)1(?!\d))", caller_input.upper())
+        member_id = mem_match.group(0) if mem_match else "unknown"
+    
+    # Perform verification check
+    v_result = _verify_identity_logic(member_id=member_id, dob=dob, email=email, phone=caller_phone)
+    
+    if not v_result.get("verified"):
+        if not email or not dob:
+             missing = []
+             if not email: missing.append("email")
+             if not dob: missing.append("date of birth")
+             return fill_template("identity_prompt", missing_field=" and ".join(missing))
+        return fill_template("identity_failed")
+
     q = caller_input.lower()
     hospital_match = re.search(
         r"(st\.?\s*vincent|mater|beacon|blackrock|dublin city|clinic|hospital)", q
@@ -67,6 +100,7 @@ def _demo_response(caller_input: str, policy_id: str) -> str:
 def build_crew_for_query(
     caller_input: str,
     caller_id: str,
+    caller_phone: str,
     conversation_history: list,
     demo_mode: bool = False,
 ) -> str:
@@ -76,6 +110,7 @@ def build_crew_for_query(
     Args:
         caller_input: Transcribed text from the caller.
         caller_id: Caller's policy ID extracted from context or provided directly.
+        caller_phone: Caller's phone number extracted from the call system.
         conversation_history: List of {role, content} dicts from this call session.
         demo_mode: If True, bypass real API calls and return a demo answer.
 
@@ -87,7 +122,7 @@ def build_crew_for_query(
     llm = _make_llm()
 
     if demo_mode or llm is None:
-        return _demo_response(caller_input, caller_id)
+        return _demo_response(caller_input, caller_id, caller_phone)
 
     # Build fresh agent instances for this query (required by CrewAI v1.x)
     from crewai import Task, Crew, Process
@@ -100,17 +135,18 @@ def build_crew_for_query(
     # ── Task 1: Identity Verification ──────────────────────────────────────
     verify_task = Task(
         description=f"""
-        Caller ID from system: {caller_id}
+        Caller Phone (Automatic): {caller_phone}
         Conversation so far: {json.dumps(conversation_history, indent=2)}
 
         Use the Identity Verifier tool to verify this caller.
-        Extract the policy number, name, and date of birth from the conversation history.
-        If any detail is missing, specify which field is needed.
+        Extract the alphanumeric member_id, email, and date of birth from the conversation history.
+        Pass the 'null' or empty string if a field is not yet provided.
+        The 'phone' argument MUST be exactly: {caller_phone}
         """,
         expected_output=(
             "JSON: verified (bool), policy_id, member_name, plan_name, "
             "deductible_remaining, claims_remaining. "
-            "If not verified: verified=False and reason."
+            "If not verified: verified=False and reason. Mention if information is missing."
         ),
         agent=identity_agent,
     )
