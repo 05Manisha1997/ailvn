@@ -188,7 +188,7 @@ async def generate_tts(body: TTSRequest):
     to browser-native SpeechSynthesis.
     """
     audio_bytes = await synthesize_to_bytes(body.text)
-    if audio_bytes is None:
+    if not audio_bytes:
         # Signal to frontend to use browser TTS
         return JSONResponse(content={"fallback": True})
     
