@@ -1,2 +1,14 @@
 # VENV   
 venv/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# env
+.env/
+.env.example/
+
+# package 
+package-lock.json
