@@ -159,13 +159,21 @@ class EmailService:
                 logger.warning("azure_email_failed", error=str(e))
 
         # Fallback to SendGrid
-        try:
-            self._send_via_sendgrid(to_email, subject, html)
-            logger.info("email_sent_sendgrid", to=to_email, call_id=call_id)
-            return True
-        except Exception as e:
-            logger.error("email_send_failed", error=str(e), to=to_email)
-            return False
+        if settings.sendgrid_api_key:
+            try:
+                self._send_via_sendgrid(to_email, subject, html)
+                logger.info("email_sent_sendgrid", to=to_email, call_id=call_id)
+                return True
+            except Exception as e:
+                logger.error("email_send_failed", error=str(e), to=to_email)
+                return False
+
+        logger.error(
+            "email_send_failed_no_provider",
+            to=to_email,
+            detail="Neither Azure Communication Services nor SendGrid is configured",
+        )
+        return False
 
     def _render_html(self, **kwargs) -> str:
         """Render the Jinja2 HTML template."""
@@ -204,7 +212,7 @@ class EmailService:
         import sendgrid
         from sendgrid.helpers.mail import Mail
 
-        sg = sendgrid.SendGridAPIClient(api_key=settings.azure_comm_connection_string)  # reuse key field
+        sg = sendgrid.SendGridAPIClient(api_key=settings.sendgrid_api_key)
         message = Mail(
             from_email=settings.azure_comm_sender_email or "noreply@voicenavigator.ai",
             to_emails=to,

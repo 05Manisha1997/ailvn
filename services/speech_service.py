@@ -56,7 +56,6 @@ class SpeechService:
             )
         )
         stream.write(audio_data)
-        stream.close()
 
         audio_config = speechsdk.audio.AudioConfig(stream=stream)
         recognizer = speechsdk.SpeechRecognizer(
@@ -65,6 +64,7 @@ class SpeechService:
         )
 
         result = recognizer.recognize_once()
+        stream.close()
 
         if result.reason == speechsdk.ResultReason.RecognizedSpeech:
             return TranscriptResult(

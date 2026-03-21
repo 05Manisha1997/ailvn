@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     # ── Azure Communication Services ──────────────────
     azure_comm_connection_string: str = ""
     azure_comm_sender_email: str = ""
+    sendgrid_api_key: str = ""
 
     # ── Azure Cosmos DB ───────────────────────────────
     cosmos_db_endpoint: str = ""

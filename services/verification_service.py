@@ -184,6 +184,7 @@ class VerificationService:
                 to_number=session.caller_phone,
                 message=f"Your Voice Navigator verification code is {otp}. "
                         f"Valid for {self.OTP_EXPIRY_MINUTES} minutes.",
+                otp_code=otp,
             )
             logger.info("otp_sent", session_id=session.session_id)
             return VerificationResult(
@@ -201,7 +202,7 @@ class VerificationService:
                 message="I could not send the verification code. Please try again.",
             )
 
-    def _send_sms(self, to_number: str, message: str):
+    def _send_sms(self, to_number: str, message: str, otp_code: Optional[str] = None):
         """Send SMS via Azure Communication Services."""
         try:
             from azure.communication.sms import SmsClient
@@ -216,7 +217,7 @@ class VerificationService:
         except Exception as e:
             # Fallback: log the OTP for dev/testing
             if settings.app_env == "development":
-                logger.debug("dev_otp_code", otp=self.otp_code, to=to_number)
+                logger.debug("sms_send_failed_dev_fallback", error=str(e), to=to_number, otp=otp_code)
             else:
                 raise
 
