@@ -1,0 +1,7 @@
+# Full install including CrewAI (for full call handling).
+# On Windows this may fail building chroma-hnswlib unless you install
+# Microsoft C++ Build Tools. Prefer: pip install -r requirements.txt first,
+# then pip install crewai==0.36.0 only if you need CrewAI.
+-r requirements.txt
+crewai==0.36.0
+crewai-tools==0.4.26

@@ -6,15 +6,19 @@ Also includes a demo/simulation mode that avoids all API calls for hackathon dem
 """
 import json
 import re
+import requests
+from config import settings
 from templates.response_templates import TEMPLATES, fill_template
+from tools.identity_tool import _verify_identity_logic
+from tools.rag_tool import policy_rag_tool
+from portal.insurance_portal import get_insurance_portal
 
 
 # ── Demo simulation (no real LLM calls) ──────────────────────────────────────
 
 def _demo_response(caller_input: str, member_id: str, caller_phone: str) -> str:
     """Fast demo path — keyword-matched response, no API calls."""
-    from tools.identity_tool import _verify_identity_logic
-    
+
     # ── Smarter Heuristics for Demo ──────────────────────────────────────────
     # Extract Email
     email_match = re.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", caller_input)
@@ -95,6 +99,108 @@ def _demo_response(caller_input: str, member_id: str, caller_phone: str) -> str:
     return TEMPLATES["fallback_human"]
 
 
+def _extract_profile_fields(caller_input: str, conversation_history: list, caller_id: str) -> tuple[str, str, str]:
+    source_text = " ".join([x.get("content", "") for x in conversation_history if x.get("role") == "user"])
+    source_text = f"{source_text} {caller_input}"
+    member_id = caller_id
+    email_match = re.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", source_text)
+    email = email_match.group(0) if email_match else ""
+    dob_match = re.search(r"(\d{4}-\d{2}-\d{2})", source_text)
+    dob = dob_match.group(1) if dob_match else ""
+    return member_id, email, dob
+
+
+def _intent_from_service(caller_input: str, caller_id: str, conversation_history: list) -> dict:
+    # External intent service integration (provided by upstream system)
+    if settings.intent_service_url:
+        try:
+            payload = {
+                "text": caller_input,
+                "caller_id": caller_id,
+                "conversation_history": conversation_history[-10:],
+            }
+            headers = {"Content-Type": "application/json"}
+            if settings.intent_service_api_key:
+                headers["Authorization"] = f"Bearer {settings.intent_service_api_key}"
+            response = requests.post(
+                settings.intent_service_url,
+                json=payload,
+                headers=headers,
+                timeout=10,
+            )
+            if response.ok:
+                data = response.json()
+                if isinstance(data, dict) and data.get("intent"):
+                    return data
+        except Exception:
+            pass
+
+    q = caller_input.lower()
+    if "hospital" in q and ("covered" in q or "network" in q):
+        intent = "hospital_covered"
+    elif "deduct" in q:
+        intent = "deductible_status"
+    elif "claim" in q and ("status" in q or "track" in q):
+        intent = "insurance_claim_status"
+    elif "claim" in q and ("document" in q or "upload" in q):
+        intent = "insurance_claim_documents"
+    elif "claim" in q and ("time" in q or "when" in q):
+        intent = "insurance_claim_timeline"
+    elif "claim" in q or "limit" in q or "remaining" in q:
+        intent = "claim_limit_remaining"
+    elif "surg" in q or "operation" in q or "treatment" in q or "dental" in q or "mental" in q:
+        intent = "treatment_covered"
+    else:
+        intent = "fallback_human"
+    return {"intent": intent}
+
+
+def _extract_rag_values(query: str, policy_id: str, intent: str) -> dict:
+    raw = policy_rag_tool(query=query, policy_id=policy_id)
+    try:
+        parsed = json.loads(raw)
+        clauses = " ".join(parsed.get("clauses", []))
+    except Exception:
+        clauses = raw
+
+    values = {
+        "hospital_name": "the requested hospital",
+        "coverage_pct": "80%",
+        "max_limit": "€80,000",
+        "nearest_network_hospital": "Dublin City Hospital",
+        "treatment_type": "this treatment",
+        "limit": "€20,000",
+        "plan_name": "your current plan",
+        "deductible_amount": "€500",
+        "deductible_remaining": "€300",
+        "remaining_limit": "€87,500",
+        "benefit_category": "annual",
+        "claim_id": "CLM-1001",
+        "claim_status": "in review",
+        "last_update": "today",
+        "required_documents": "invoice, discharge summary, and doctor referral",
+        "processing_time": "5-7 business days",
+        "expected_date": "within one week",
+    }
+
+    percent = re.search(r"(\d{1,3}%)", clauses)
+    amount = re.search(r"(€\s?[\d,]+)", clauses)
+    if percent:
+        values["coverage_pct"] = percent.group(1)
+    if amount:
+        values["max_limit"] = amount.group(1).replace(" ", "")
+    if "dental" in query.lower():
+        values["treatment_type"] = "Dental treatment"
+        values["limit"] = "€1,500"
+    if "mental" in query.lower():
+        values["treatment_type"] = "Mental health treatment"
+        values["limit"] = "€15,000"
+    if "surg" in query.lower():
+        values["treatment_type"] = "Surgical procedures"
+
+    return values
+
+
 # ── Full CrewAI pipeline ──────────────────────────────────────────────────────
 
 def build_crew_for_query(
@@ -117,104 +223,28 @@ def build_crew_for_query(
     Returns:
         Final spoken response string ready for TTS.
     """
-    from agents.crew_insurance import _make_llm, make_identity_agent, make_intent_agent, make_rag_agent, make_response_agent
-
-    llm = _make_llm()
-
-    if demo_mode or llm is None:
+    if demo_mode:
         return _demo_response(caller_input, caller_id, caller_phone)
 
-    # Build fresh agent instances for this query (required by CrewAI v1.x)
-    from crewai import Task, Crew, Process
+    member_id, email, dob = _extract_profile_fields(caller_input, conversation_history, caller_id)
+    verification = _verify_identity_logic(member_id=member_id, dob=dob, email=email, phone=caller_phone)
+    if not verification.get("verified"):
+        if not email or not dob:
+            missing = []
+            if not email:
+                missing.append("email")
+            if not dob:
+                missing.append("date of birth")
+            return fill_template("identity_prompt", missing_field=" and ".join(missing))
+        return fill_template("identity_failed")
 
-    identity_agent = make_identity_agent(llm)
-    intent_agent   = make_intent_agent(llm)
-    rag_agent      = make_rag_agent(llm)
-    response_agent = make_response_agent(llm)
+    intent_payload = _intent_from_service(caller_input, verification.get("policy_id", caller_id), conversation_history)
+    intent = intent_payload.get("intent", "fallback_human")
+    rag_values = _extract_rag_values(caller_input, verification.get("policy_id", caller_id), intent)
+    rag_values.setdefault("plan_name", verification.get("plan_name", "your current plan"))
+    rag_values.setdefault("deductible_remaining", verification.get("deductible_remaining", "€0"))
+    rag_values.setdefault("remaining_limit", verification.get("claims_remaining", "€0"))
 
-    # ── Task 1: Identity Verification ──────────────────────────────────────
-    verify_task = Task(
-        description=f"""
-        Caller Phone (Automatic): {caller_phone}
-        Conversation so far: {json.dumps(conversation_history, indent=2)}
-
-        Use the Identity Verifier tool to verify this caller.
-        Extract the alphanumeric member_id, email, and date of birth from the conversation history.
-        Pass the 'null' or empty string if a field is not yet provided.
-        The 'phone' argument MUST be exactly: {caller_phone}
-        """,
-        expected_output=(
-            "JSON: verified (bool), policy_id, member_name, plan_name, "
-            "deductible_remaining, claims_remaining. "
-            "If not verified: verified=False and reason. Mention if information is missing."
-        ),
-        agent=identity_agent,
-    )
-
-    # ── Task 2: Intent Extraction ───────────────────────────────────────────
-    intent_task = Task(
-        description=f"""
-        Caller said: "{caller_input}"
-        Prior verification result is in context.
-
-        Extract structured intent as JSON with these fields:
-        - query_type: one of [coverage_check, hospital_eligibility, claim_limit, deductible, treatment_check, other]
-        - hospital_name: if mentioned, else null
-        - treatment_type: if mentioned, else null
-        - policy_id: from the verification result
-        """,
-        expected_output="JSON: query_type, hospital_name, treatment_type, policy_id",
-        agent=intent_agent,
-        context=[verify_task],
-    )
-
-    # ── Task 3: RAG Policy Retrieval ────────────────────────────────────────
-    rag_task = Task(
-        description="""
-        Using the structured intent from context, call the Policy RAG Retriever tool
-        with the caller's query and policy_id.
-
-        Extract from the returned clauses:
-        - coverage_pct (e.g. 80%)
-        - max_limit (e.g. €80,000)
-        - hospital_in_network (true/false if hospital was asked)
-        - nearest_network_hospital (if out of network)
-        - benefit_limit (annual cap)
-        - exclusions (list any mentioned)
-
-        Return ONLY raw values. No prose.
-        """,
-        expected_output=(
-            "JSON: coverage_pct, max_limit, hospital_in_network, "
-            "nearest_network_hospital, benefit_limit, exclusions"
-        ),
-        agent=rag_agent,
-        context=[intent_task],
-    )
-
-    # ── Task 4: Response Formatting ─────────────────────────────────────────
-    format_task = Task(
-        description=f"""
-        Use ONLY the templates below. Fill in slots from the RAG context.
-        Pick the template that best matches the query_type.
-
-        Available templates:
-        {json.dumps(TEMPLATES, indent=2)}
-
-        Output a single, complete sentence ready to be spoken aloud to the caller.
-        Do not add greetings, disclaimers, or additional sentences.
-        """,
-        expected_output="Single spoken sentence filled from the correct template.",
-        agent=response_agent,
-        context=[rag_task],
-    )
-
-    crew = Crew(
-        agents=[identity_agent, intent_agent, rag_agent, response_agent],
-        tasks=[verify_task, intent_task, rag_task, format_task],
-        process=Process.sequential,
-        verbose=True,
-    )
-
-    result = crew.kickoff()
-    return str(result)
+    portal = get_insurance_portal()
+    response = portal.fill_template(intent, rag_values)
+    return response

@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     azure_speech_key: str = Field(default="", env="AZURE_SPEECH_KEY")
     azure_speech_region: str = Field(default="eastus", env="AZURE_SPEECH_REGION")
 
+    # External Intent Service
+    intent_service_url: str = Field(default="", env="INTENT_SERVICE_URL")
+    intent_service_api_key: str = Field(default="", env="INTENT_SERVICE_API_KEY")
+
     # Azure Cognitive Services
     azure_cognitive_endpoint: str = Field(default="", env="AZURE_COGNITIVE_ENDPOINT")
 
