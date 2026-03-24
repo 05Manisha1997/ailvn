@@ -27,7 +27,7 @@ from agents.tasks import build_crew_for_query
 from tts.elevenlabs_streamer import synthesize_to_bytes
 from tools.translator_api import translator
 from tools.template_verifier import verify_and_fix_template
-from templates.response_templates import get_all_templates, upsert_template
+from portal.insurance_portal import get_insurance_portal
 
 router = APIRouter()
 
@@ -206,14 +206,16 @@ class TemplateRequest(BaseModel):
 
 @router.get("/templates")
 async def list_templates():
-    """Return all current response templates."""
-    return get_all_templates()
+    """Return all current portal templates keyed by intent."""
+    portal = get_insurance_portal()
+    return {k: v.template for k, v in portal.list_templates().items()}
 
 @router.post("/templates")
 async def add_template(body: TemplateRequest):
     """Clean a user-submitted template and save it."""
     clean_text = await verify_and_fix_template(body.intent_key, body.template)
-    upsert_template(body.intent_key, clean_text)
+    portal = get_insurance_portal()
+    portal.save_template(body.intent_key, clean_text)
     return {"status": "success", "clean_template": clean_text, "intent_key": body.intent_key}
 
 

@@ -4,7 +4,14 @@ CrewAI tool – hybrid vector + keyword search against Azure AI Search.
 Falls back to an in-memory demo knowledge base when Azure Search is not configured.
 """
 import json
-from crewai.tools import tool
+try:
+    from crewai.tools import tool
+except Exception:
+    # Allow non-Crew runtime imports (e.g., API-only mode)
+    def tool(_name):
+        def _decorator(func):
+            return func
+        return _decorator
 from config import settings
 
 # ── Demo knowledge base (used when Azure Search is not configured) ────────────

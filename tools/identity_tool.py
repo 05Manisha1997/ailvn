@@ -3,9 +3,15 @@ tools/identity_tool.py
 CrewAI tool – verifies a caller's identity against the Cosmos DB policyholders container.
 Falls back to an in-memory store when Cosmos DB is not configured (demo mode).
 """
-import os
 import json
-from crewai.tools import tool
+try:
+    from crewai.tools import tool
+except Exception:
+    # Allow non-Crew runtime imports (e.g., API-only mode)
+    def tool(_name):
+        def _decorator(func):
+            return func
+        return _decorator
 from config import settings
 
 # ── In-memory demo policyholders (used when Cosmos is not configured) ────────
