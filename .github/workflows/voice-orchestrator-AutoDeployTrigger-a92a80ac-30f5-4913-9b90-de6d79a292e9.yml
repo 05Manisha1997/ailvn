@@ -1,0 +1,49 @@
+name: Trigger auto deployment for voice-orchestrator
+
+# When this action will be executed
+on:
+  # Automatically trigger it when detected changes in repo
+  push:
+    branches: 
+      [ main ]
+    paths:
+    - '**'
+    - '.github/workflows/voice-orchestrator-AutoDeployTrigger-a92a80ac-30f5-4913-9b90-de6d79a292e9.yml'
+
+  # Allow manual trigger 
+  workflow_dispatch:      
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions: 
+      id-token: write #This is required for requesting the OIDC JWT Token
+      contents: read #Required when GH token is used to authenticate with private repo
+
+    steps:
+      - name: Checkout to the branch
+        uses: actions/checkout@v2
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.VOICEORCHESTRATOR_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.VOICEORCHESTRATOR_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.VOICEORCHESTRATOR_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push container image to registry
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          appSourcePath: ${{ github.workspace }}
+          _dockerfilePathKey_: _dockerfilePath_
+          _targetLabelKey_: _targetLabel_
+          registryUrl: voicenavigatoracr1234.azurecr.io
+          registryUsername: ${{ secrets.VOICEORCHESTRATOR_REGISTRY_USERNAME }}
+          registryPassword: ${{ secrets.VOICEORCHESTRATOR_REGISTRY_PASSWORD }}
+          containerAppName: voice-orchestrator
+          resourceGroup: voice-navigator-rg
+          imageToBuild: voicenavigatoracr1234.azurecr.io/voice-orchestrator:${{ github.sha }}
+          _buildArgumentsKey_: |
+            _buildArgumentsValues_
+
+
