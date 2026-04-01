@@ -4,7 +4,7 @@ Streams ElevenLabs TTS audio (PCM 16 kHz) back over a WebSocket connection using
 Falls back to silent no-op when ElevenLabs key is not configured.
 """
 import asyncio
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 from config import settings
 
 try:
@@ -19,7 +19,12 @@ if settings.elevenlabs_api_key and AsyncElevenLabs:
         api_key=settings.elevenlabs_api_key
     )
 
-async def stream_tts_to_call(text: str, websocket) -> None:
+async def stream_tts_to_call(
+    text: str,
+    websocket,
+    *,
+    voice_id: Optional[str] = None,
+) -> None:
     """
     Stream ElevenLabs TTS audio bytes directly back to the caller's WebSocket.
 
@@ -53,7 +58,7 @@ async def stream_tts_to_call(text: str, websocket) -> None:
     except Exception as e:
         print(f"[TTS] Streaming error: {e}")
 
-async def synthesize_to_bytes(text: str) -> bytes:
+async def synthesize_to_bytes(text: str, *, voice_id: Optional[str] = None) -> bytes:
     """
     Synthesize text to audio bytes (non-streaming) for use in REST endpoints.
     Returns empty bytes if ElevenLabs is not configured.
@@ -62,8 +67,9 @@ async def synthesize_to_bytes(text: str) -> bytes:
         return b""
 
     try:
+        vid = voice_id or settings.elevenlabs_voice_id
         generator = elevenlabs_client.text_to_speech.convert(
-            voice_id=settings.elevenlabs_voice_id,
+            voice_id=vid,
             text=text,
             model_id="eleven_turbo_v2",
             output_format="mp3_44100_128",

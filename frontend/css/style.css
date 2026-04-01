@@ -60,6 +60,19 @@ body {
   line-height: 1.5;
 }
 
+body.landing-mode .sidebar,
+body.landing-mode .topbar {
+  display: none;
+}
+
+body.landing-mode .main-content {
+  width: 100%;
+}
+
+body.landing-mode .view {
+  padding: 0;
+}
+
 /* ── Scrollbar ─────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;
@@ -309,6 +322,76 @@ body {
 
 .view.active {
   display: block;
+}
+
+/* Landing */
+.landing-hero {
+  min-height: 100vh;
+  display: block;
+  padding: 0;
+  overflow: hidden;
+}
+
+.landing-overlay h2 {
+  font-size: 38px;
+  line-height: 1.1;
+  margin-bottom: 6px;
+  color: #fff;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.45);
+}
+
+.landing-sub {
+  color: #9ef5e3;
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.45);
+}
+
+.landing-desc {
+  color: #e6eef7;
+  font-size: 15px;
+  margin-bottom: 18px;
+  max-width: 560px;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.45);
+}
+
+.landing-image-wrap {
+  position: relative;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: linear-gradient(135deg, rgba(0, 212, 170, 0.18), rgba(79, 142, 247, 0.18));
+  min-height: 100vh;
+}
+
+.landing-image-wrap.no-image {
+  display: grid;
+  place-items: center;
+}
+
+.landing-image-wrap.no-image::before {
+  content: "Add image at frontend/assets/laya-reception.jpg";
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.landing-image {
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  object-fit: cover;
+  display: block;
+}
+
+.landing-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: end;
+  padding: 28px;
+  background: linear-gradient(180deg, rgba(3, 8, 16, 0.12) 20%, rgba(3, 8, 16, 0.72) 100%);
 }
 
 /* ──────────────────────────────────────────────────────────────────────── */
@@ -1270,6 +1353,8 @@ select.form-control option {
 /*  RESPONSIVE (tablet-ish)                                                 */
 /* ──────────────────────────────────────────────────────────────────────── */
 @media (max-width: 1100px) {
+  .landing-overlay h2 { font-size: 30px; }
+
   .kpi-grid {
     grid-template-columns: repeat(2, 1fr);
   }

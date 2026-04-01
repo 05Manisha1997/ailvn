@@ -1,0 +1,101 @@
+{
+  "description": "Bootstrap CSR + small-talk intents into Cosmos (response_templates). Edit in DB after sync; this file only adds missing ids.",
+  "templates": [
+    {
+      "intent": "smalltalk_greeting",
+      "template": "Hello, and thank you for calling InsureCo. I'm here to help with your plan, claims, or benefits. How can I assist you today?",
+      "enabled": true,
+      "doc_sources": []
+    },
+    {
+      "intent": "smalltalk_how_are_you",
+      "template": "I'm doing well, thank you for asking — I hope you're having a good day too. Whenever you're ready, tell me what you need help with on your policy.",
+      "enabled": true,
+      "doc_sources": []
+    },
+    {
+      "intent": "smalltalk_thanks",
+      "template": "You're very welcome. Is there anything else I can help you with today?",
+      "enabled": true,
+      "doc_sources": []
+    },
+    {
+      "intent": "smalltalk_goodbye",
+      "template": "Thank you for calling InsureCo. Take care, and don't hesitate to reach out if you need us again.",
+      "enabled": true,
+      "doc_sources": []
+    },
+    {
+      "intent": "smalltalk_weather",
+      "template": "I'll leave the weather to you — I'm here for insurance questions. If you'd like, we can look up coverage, claims, or providers whenever you're ready.",
+      "enabled": true,
+      "doc_sources": []
+    },
+    {
+      "intent": "smalltalk_wait",
+      "template": "Of course — take your time. I'm here when you're ready.",
+      "enabled": true,
+      "doc_sources": []
+    },
+    {
+      "intent": "csr_coverage_verification",
+      "template": "I can check that for you. I see Downtown Imaging is an in-network provider, so you are covered. For this specific procedure, your plan does require a prior authorization from your primary doctor. I don't see one on file yet; would you like the fax number for your doctor to send that over?",
+      "enabled": true,
+      "doc_sources": []
+    },
+    {
+      "intent": "csr_claims_status_inquiry",
+      "template": "Let me pull up your recent claims. I see claim #8821 was received on the 10th. It is currently in 'Pending' status because we are waiting on the clinical notes from the therapist's office. Once we receive those, it typically takes 5–7 business days to finalize payment.",
+      "enabled": true,
+      "doc_sources": []
+    },
+    {
+      "intent": "csr_network_search",
+      "template": "Certainly. I've found three providers within that radius. The highly-rated one is Dr. Sarah Smith at Children's Health. I can email you their contact details and a link to our Provider Directory so you can see their current patient availability.",
+      "enabled": true,
+      "doc_sources": []
+    },
+    {
+      "intent": "csr_benefits_explanation_oop",
+      "template": "You're right, preventative care is covered at 100%. However, looking at the claim, it appears the doctor also treated a diagnostic issue (a sinus infection) during the same visit. That part of the visit triggered your standard $50 specialist co-pay.",
+      "enabled": true,
+      "doc_sources": []
+    },
+    {
+      "intent": "csr_prescription_formulary",
+      "template": "I can check our Formulary (Drug List) for you. Zyloprim is a Tier 1 generic medication. Based on your plan, a 30-day supply at a retail pharmacy will be a $10 co-pay. If you use our mail-order service, you can get a 90-day supply for $20.",
+      "enabled": true,
+      "doc_sources": []
+    },
+    {
+      "intent": "csr_coordination_of_benefits",
+      "template": "Congratulations! In this case, the plan you've had longer (your employer's plan) is usually your Primary Insurance, and your husband's plan is Secondary. You should provide both ID cards to your doctor so they can bill in the correct order.",
+      "enabled": true,
+      "doc_sources": []
+    },
+    {
+      "intent": "csr_high_deductible_accumulator",
+      "template": "Your annual individual deductible is $3,000. So far this year, you have applied $2,150 toward it. That means you have $850 remaining before the insurance begins paying the shared percentage (coinsurance) for your medical costs.",
+      "enabled": true,
+      "doc_sources": []
+    },
+    {
+      "intent": "csr_update_personal_info",
+      "template": "I can update that for you right now. I've changed your address to the new address you provided. Would you also like me to trigger a replacement ID card to be mailed to the new address? You should receive it within 7 to 10 business days.",
+      "enabled": true,
+      "doc_sources": []
+    },
+    {
+      "intent": "csr_appeal_denial",
+      "template": "I understand your frustration. You have the right to file a Formal Appeal. I can mail you the Appeal Form today, or you can download it from our portal. You'll need to include a letter of medical necessity from your doctor explaining why a standard brace wouldn't work for your condition.",
+      "enabled": true,
+      "doc_sources": []
+    },
+    {
+      "intent": "csr_tax_enrollment_docs",
+      "template": "We mailed those out in late January, but I can certainly help. I can digitally upload a copy to your secure member portal right now, and you can download it immediately. Would you like me to walk you through where to find it on the website? I can also draft a short script for one of these scenarios if you'd like to practice a phone call.",
+      "enabled": true,
+      "doc_sources": []
+    }
+  ]
+}

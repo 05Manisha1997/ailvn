@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>InsureCo AI Voice Navigator — Dashboard</title>
+  <title>AILVN Dashboard</title>
   <meta name="description"
     content="Real-time AI-powered insurance call centre dashboard with live call monitoring, call simulation, analytics, and policy management." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -27,8 +27,8 @@
         </svg>
       </div>
       <div>
-        <span class="logo-name">InsureCo</span>
-        <span class="logo-sub">AI Voice Navigator</span>
+        <span class="logo-name">AILVN</span>
+        <span class="logo-sub">AI powered Laya Voice Navigator</span>
       </div>
     </div>
 
@@ -49,32 +49,6 @@
           <polygon points="10 8 16 12 10 16 10 8" />
         </svg>
         Call Simulator
-      </button>
-      <button class="nav-item" id="nav-analytics" onclick="showView('analytics')">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="20" x2="18" y2="10" />
-          <line x1="12" y1="20" x2="12" y2="4" />
-          <line x1="6" y1="20" x2="6" y2="14" />
-        </svg>
-        Analytics
-      </button>
-      <button class="nav-item" id="nav-policies" onclick="showView('policies')">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <polyline points="14 2 14 8 20 8" />
-          <line x1="16" y1="13" x2="8" y2="13" />
-          <line x1="16" y1="17" x2="8" y2="17" />
-          <polyline points="10 9 9 9 8 9" />
-        </svg>
-        Policy Manager
-      </button>
-      <button class="nav-item" id="nav-templates" onclick="showView('templates')">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-          <line x1="3" y1="9" x2="21" y2="9" />
-          <line x1="9" y1="21" x2="9" y2="9" />
-        </svg>
-        Response Templates
       </button>
     </nav>
 
@@ -121,6 +95,28 @@
         <div class="avatar">AI</div>
       </div>
     </header>
+
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <!--  VIEW: Landing                                               -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <section class="view" id="view-landing">
+      <div class="landing-hero card">
+        <div class="landing-image-wrap">
+          <img
+            class="landing-image"
+            src="/app/assets/laya-reception.jpg"
+            alt="Laya Healthcare reception"
+            onerror="this.style.display='none';this.parentElement.classList.add('no-image');"
+          />
+          <div class="landing-overlay">
+            <h2>Welcome to AILVN</h2>
+            <p class="landing-sub">AI powered Laya Voice Navigator</p>
+            <p class="landing-desc">One stop solution for all your queries on policies.</p>
+            <button class="btn btn-primary" onclick="showView('simulator')">Call</button>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <!-- ════════════════════════════════════════════════════════════ -->
     <!--  VIEW: Live Calls Dashboard                                  -->
@@ -219,21 +215,31 @@
         <!-- Left: Config Panel -->
         <div class="sim-config card">
           <h2 class="card-title">Call Configuration</h2>
+          <p class="card-desc" style="font-size:0.85rem;color:var(--muted);margin-bottom:1rem;">
+            No telephony: pick a policyholder to simulate the <strong>detected caller ID</strong> (phone). The agent then asks for <strong>member ID</strong> and <strong>date of birth</strong> to match Cosmos.
+          </p>
           <div class="form-group">
-            <label>Caller / Policy ID</label>
-            <select id="sim-caller-id" class="form-control">
-              <option value="POL-001">POL-001 — Sarah O'Brien (PremiumCare Plus)</option>
-              <option value="POL-002">POL-002 — James Murphy (StandardCare)</option>
-              <option value="POL-003">POL-003 — Aoife Kelly (BasicCare)</option>
-              <option value="DEMO-001">DEMO-001 — Anonymous Demo</option>
+            <label>Simulated policyholder (sets detected phone)</label>
+            <select id="sim-policy-select" class="form-control">
+              <option value="">Loading from database…</option>
             </select>
           </div>
           <div class="form-group">
-            <label>Demo Mode</label>
+            <label>Detected phone (simulated CLID)</label>
+            <div id="sim-detected-phone" class="form-control" style="background:var(--surface-2);cursor:default;">
+              Select a policyholder…
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="checkbox-row" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+              <input type="checkbox" id="sim-demo-mode" />
+              <span>Demo mode (keyword answers, relaxed verification)</span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label>Response Source</label>
             <div class="toggle-row">
-              <input type="checkbox" id="sim-demo-mode" class="toggle" checked />
-              <label for="sim-demo-mode" class="toggle-label"></label>
-              <span class="toggle-desc">Fast responses (no API keys needed)</span>
+              <span class="toggle-desc">Templates from Cosmos when not in demo mode</span>
             </div>
           </div>
 
@@ -251,7 +257,6 @@
             <button class="quick-btn" onclick="setQuery('Is Dublin City Hospital in my network?')">🗺️ Hospital
               network</button>
           </div>
-
           <button class="btn btn-danger btn-full" onclick="clearSimulation()" id="sim-clear-btn">
             Clear Conversation
           </button>
@@ -264,6 +269,16 @@
               <span class="dot green-dot"></span>
               <span>AI Agent Active</span>
             </div>
+            <div class="mode-toggle" style="display:flex;align-items:center;gap:0.8rem;">
+              <label class="checkbox-row" style="display:flex;align-items:center;gap:0.35rem;cursor:pointer;">
+                <input type="checkbox" id="sim-chat-mode" checked />
+                <span>Chat Mode</span>
+              </label>
+              <label class="checkbox-row" style="display:flex;align-items:center;gap:0.35rem;cursor:pointer;">
+                <input type="checkbox" id="sim-talk-mode" />
+                <span>Talk Mode</span>
+              </label>
+            </div>
             <div class="agent-pills">
               <span class="chip">Identity</span>
               <span class="chip">Intent</span>
@@ -275,8 +290,8 @@
           <div class="chat-messages" id="chat-messages">
             <div class="message assistant">
               <div class="msg-avatar">AI</div>
-              <div class="msg-bubble">
-                Thank you for calling InsureCo. Please state your policy number and date of birth to begin.
+              <div class="msg-bubble" id="sim-initial-msg">
+                Choose a policyholder on the left to simulate their phone number, then tell me your member ID and date of birth (YYYY-MM-DD).
               </div>
             </div>
           </div>
@@ -304,234 +319,11 @@
       </div>
     </section>
 
-    <!-- ════════════════════════════════════════════════════════════ -->
-    <!--  VIEW: Analytics                                             -->
-    <!-- ════════════════════════════════════════════════════════════ -->
-    <section class="view" id="view-analytics">
-      <!-- Metric Cards -->
-      <div class="analytics-grid">
-        <div class="metric-card card">
-          <div class="metric-label">Calls Today</div>
-          <div class="metric-value counter" data-target="47" id="m-calls">0</div>
-          <div class="metric-trend up">↑ 12% vs yesterday</div>
-        </div>
-        <div class="metric-card card">
-          <div class="metric-label">AI Resolution Rate</div>
-          <div class="metric-value counter pct" data-target="91" id="m-rate">0</div>
-          <div class="metric-trend up">↑ 3% vs last week</div>
-        </div>
-        <div class="metric-card card">
-          <div class="metric-label">Avg Response Time</div>
-          <div class="metric-value" id="m-latency">2.8s</div>
-          <div class="metric-trend down">↓ 0.4s improved</div>
-        </div>
-        <div class="metric-card card">
-          <div class="metric-label">Transferred to Human</div>
-          <div class="metric-value counter pct" data-target="9" id="m-transfer">0</div>
-          <div class="metric-trend down">↓ Better than 12% target</div>
-        </div>
-      </div>
-
-      <!-- Charts Row -->
-      <div class="charts-row">
-        <div class="chart-card card">
-          <h3>Intent Distribution</h3>
-          <div class="chart-wrap">
-            <canvas id="intent-chart"></canvas>
-          </div>
-        </div>
-        <div class="chart-card card wide">
-          <h3>Hourly Call Volume (Today)</h3>
-          <div class="chart-wrap tall">
-            <canvas id="hourly-chart"></canvas>
-          </div>
-        </div>
-      </div>
-
-      <!-- Agent Pipeline Performance -->
-      <div class="card mt-lg">
-        <h3 class="card-title">Agent Pipeline Performance</h3>
-        <div class="pipeline-bars">
-          <div class="pipe-item">
-            <span class="pipe-name">Identity Verifier</span>
-            <div class="pipe-bar-bg">
-              <div class="pipe-bar" style="width:98%"></div>
-            </div>
-            <span class="pipe-pct">98% success</span>
-          </div>
-          <div class="pipe-item">
-            <span class="pipe-name">Intent Extractor</span>
-            <div class="pipe-bar-bg">
-              <div class="pipe-bar" style="width:95%"></div>
-            </div>
-            <span class="pipe-pct">95% accuracy</span>
-          </div>
-          <div class="pipe-item">
-            <span class="pipe-name">RAG Policy Retriever</span>
-            <div class="pipe-bar-bg">
-              <div class="pipe-bar blue-bar" style="width:89%"></div>
-            </div>
-            <span class="pipe-pct">89% match rate</span>
-          </div>
-          <div class="pipe-item">
-            <span class="pipe-name">Response Formatter</span>
-            <div class="pipe-bar-bg">
-              <div class="pipe-bar green-bar" style="width:100%"></div>
-            </div>
-            <span class="pipe-pct">100% template hit</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ════════════════════════════════════════════════════════════ -->
-    <!--  VIEW: Policy Manager                                        -->
-    <!-- ════════════════════════════════════════════════════════════ -->
-    <section class="view" id="view-policies">
-      <div class="policies-layout">
-        <!-- Upload Card -->
-        <div class="card upload-card">
-          <h2 class="card-title">Index New Policy Document</h2>
-          <p class="card-desc">Upload a PDF policy document to index it into Azure AI Search for RAG retrieval.</p>
-          <div class="upload-zone" id="upload-zone" ondragover="event.preventDefault()" ondrop="handleDrop(event)">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-            <p>Drag & drop a PDF here</p>
-            <span>or</span>
-            <input type="file" id="policy-file" accept=".pdf" style="display:none" onchange="handleFileSelect(event)" />
-            <button class="btn btn-ghost" onclick="document.getElementById('policy-file').click()">Browse File</button>
-          </div>
-          <div class="form-group mt-md">
-            <label>Policy ID</label>
-            <input type="text" id="pol-id-input" class="form-control" placeholder="e.g. POL-006" />
-          </div>
-          <button class="btn btn-primary btn-full mt-sm" onclick="indexPolicy()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            Index Document
-          </button>
-        </div>
-
-        <!-- Known Policies Table -->
-        <div class="card policies-table-card">
-          <h2 class="card-title">Policyholder Database</h2>
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Policy ID</th>
-                <th>Name</th>
-                <th>Plan</th>
-                <th>Deductible Left</th>
-                <th>Claims Used</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody id="policies-tbody">
-              <tr>
-                <td>POL-001</td>
-                <td>Sarah O'Brien</td>
-                <td>PremiumCare Plus</td>
-                <td>€300</td>
-                <td>€12,500 / €100,000</td>
-                <td><span class="badge active">Active</span></td>
-              </tr>
-              <tr>
-                <td>POL-002</td>
-                <td>James Murphy</td>
-                <td>StandardCare</td>
-                <td>€200</td>
-                <td>€7,800 / €50,000</td>
-                <td><span class="badge active">Active</span></td>
-              </tr>
-              <tr>
-                <td>POL-003</td>
-                <td>Aoife Kelly</td>
-                <td>BasicCare</td>
-                <td>€2,000</td>
-                <td>€1,200 / €25,000</td>
-                <td><span class="badge active">Active</span></td>
-              </tr>
-              <tr>
-                <td>POL-004</td>
-                <td>Ciarán Walsh</td>
-                <td>SeniorCare Gold</td>
-                <td>€0</td>
-                <td>€45,000 / €150,000</td>
-                <td><span class="badge active">Active</span></td>
-              </tr>
-              <tr>
-                <td>POL-005</td>
-                <td>Niamh Brennan</td>
-                <td>YoungAdult Starter</td>
-                <td>€1,500</td>
-                <td>€0 / €20,000</td>
-                <td><span class="badge active">Active</span></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ════════════════════════════════════════════════════════════ -->
-    <!--  VIEW: Response Templates                                    -->
-    <!-- ════════════════════════════════════════════════════════════ -->
-    <section class="view" id="view-templates">
-      <div class="policies-layout">
-        <!-- New Template Card -->
-        <div class="card upload-card">
-          <h2 class="card-title">Add/Edit Template</h2>
-          <p class="card-desc">Provide an intent key and the desired response format. Use brackets like {variable} for dynamic slots.</p>
-          <div class="form-group mt-md">
-            <label>Intent Key (e.g., hospital_covered)</label>
-            <input type="text" id="template-intent-input" class="form-control" placeholder="hospital_covered" />
-          </div>
-          <div class="form-group mt-md">
-            <label>Template String</label>
-            <textarea id="template-value-input" class="form-control" placeholder="Your policy covers {coverage_pct}..." rows="4"></textarea>
-          </div>
-          <button class="btn btn-primary btn-full mt-sm" id="btn-save-template" onclick="saveTemplate()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-              <polyline points="17 21 17 13 7 13 7 21" />
-              <polyline points="7 3 7 8 15 8" />
-            </svg>
-            <span id="save-template-text">Verify & Save</span>
-          </button>
-        </div>
-
-        <!-- Known Templates Table -->
-        <div class="card policies-table-card">
-          <h2 class="card-title">Current Templates</h2>
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th style="width: 25%">Intent Key</th>
-                <th>Template Expression</th>
-                <th style="width: 80px">Action</th>
-              </tr>
-            </thead>
-            <tbody id="templates-tbody">
-              <!-- Populated by templates.js -->
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
   </main>
 
   <script src="js/app.js"></script>
   <script src="js/dashboard.js"></script>
   <script src="js/simulator.js"></script>
-  <script src="js/analytics.js"></script>
-  <script src="js/templates.js"></script>
-  <script src="js/policies.js"></script>
 </body>
 
 </html>

@@ -5,19 +5,22 @@ FastAPI application entry point.
 Handles:
 - WebSocket endpoint for real-time call audio streaming
 - REST endpoints for portal admin (CRUD templates)
-- Webhook endpoints for Genesis / Azure events
+- Webhook endpoints for Azure Communication Services events
 """
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from config.settings import get_settings
 from utils.logger import logger
+from portal.portal_routes import portal_router
 
 settings = get_settings()
 
@@ -55,12 +58,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(portal_router)
+
 
 # ── Health Check ──────────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "voice-navigator", "env": settings.app_env}
+
+
+# ── Frontend Static Mount ─────────────────────────────────────────────────────
+frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+if os.path.exists(frontend_dir):
+    app.mount("/app", StaticFiles(directory=frontend_dir, html=True), name="frontend")
+
+portal_admin_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "portal_ui")
+if os.path.exists(portal_admin_dir):
+    app.mount(
+        "/portal",
+        StaticFiles(directory=portal_admin_dir, html=True),
+        name="portal_admin",
+    )
+
+
+@app.get("/")
+async def root():
+    return {
+        "service": "voice-navigator",
+        "status": "running",
+        "dashboard": "/app",
+        "response_portal_ui": "/portal",
+        "response_portal_api": "/portal/v1",
+        "docs": "/docs",
+    }
 
 
 # ── WebSocket: Real-Time Call Handler ─────────────────────────────────────────
@@ -78,8 +109,8 @@ async def call_websocket(websocket: WebSocket):
     4. Client sends {"event": "end"} to terminate the call
     5. Server sends {"event": "call_ended"} and closes
 
-    This WebSocket acts as the bridge between Genesis/Azure Comm Services
-    and the Voice Navigator orchestrator.
+    This WebSocket acts as the bridge between Azure Communication Services
+    (or any compatible telephony front-end) and the Voice Navigator orchestrator.
     """
     await websocket.accept()
     logger.info("websocket_connected", client=str(websocket.client))
@@ -161,27 +192,6 @@ async def call_websocket(websocket: WebSocket):
 
 
 # ── Webhooks ──────────────────────────────────────────────────────────────────
-
-@app.post("/webhooks/genesis")
-async def genesis_webhook(payload: dict):
-    """
-    Webhook for Genesis (Genesys Cloud) call events.
-    Genesys sends events: call.started, call.ended, dtmf, speech
-    Maps to WebSocket protocol internally.
-    """
-    event_type = payload.get("topicName", "")
-    logger.info("genesis_webhook", event=event_type)
-
-    if "call.ended" in event_type:
-        call_id = payload.get("eventBody", {}).get("id")
-        if call_id:
-            # Trigger session cleanup
-            from memory.session_memory import get_session_memory
-            mem = get_session_memory()
-            mem.end_session(call_id)
-
-    return {"status": "received"}
-
 
 @app.post("/webhooks/azure-call")
 async def azure_call_webhook(payload: dict):

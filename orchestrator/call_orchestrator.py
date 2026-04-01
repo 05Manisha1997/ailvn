@@ -24,6 +24,12 @@ from memory.session_memory import get_session_memory
 from rag.pipeline import get_rag_pipeline
 from portal.response_portal import get_response_portal
 from agents.crew_orchestrator import get_crew
+from ai_service import (
+    classify_intent_with_retry,
+    map_llm_intent_to_portal,
+    notify_next_service,
+    save_intent_to_cosmos,
+)
 from utils.logger import get_call_logger
 
 # RAG fact extraction helper
@@ -69,7 +75,7 @@ class CallOrchestrator:
         self,
         caller_phone: str,
         caller_email: Optional[str] = None,
-        call_source: str = "genesis",   # "genesis" | "azure_comm" | "direct"
+        call_source: str = "azure_comm",   # "azure_comm" | "direct" | other tags
     ):
         self.caller_phone = caller_phone
         self.caller_email = caller_email
@@ -270,9 +276,39 @@ class CallOrchestrator:
                 for t in (session.conversation if session else [])
             ]
 
+            # LLM intent (transcribed text) → Cosmos log → optional webhook → portal key for RAG routing
+            raw_intent_label: str | None = None
+            try:
+                raw_intent_label = await asyncio.to_thread(
+                    classify_intent_with_retry, user_text
+                )
+            except Exception as e:
+                self.log.warning("llm_intent_classification_failed", error=str(e))
+
+            if raw_intent_label:
+                evt_id = save_intent_to_cosmos(
+                    user_text,
+                    raw_intent_label,
+                    call_id=self.session.call_id,
+                )
+                hook = await asyncio.to_thread(
+                    notify_next_service,
+                    raw_intent_label,
+                    user_text,
+                    self.session.call_id,
+                )
+                self.log.info(
+                    "intent_classified",
+                    raw=raw_intent_label,
+                    portal=map_llm_intent_to_portal(raw_intent_label),
+                    cosmos_event=evt_id,
+                    webhook_ok=hook.get("notified"),
+                )
+                quick_intent = map_llm_intent_to_portal(raw_intent_label)
+            else:
+                quick_intent = self._quick_classify_intent(user_text)
+
             # Detect intent change → trigger new RAG fetch
-            from agents.crew_orchestrator import get_llm
-            quick_intent = self._quick_classify_intent(user_text)
             intent_changed = quick_intent != current_intent
 
             if intent_changed or not session.temp_doc_ids:
@@ -354,13 +390,14 @@ class CallOrchestrator:
         is_live_transfer = self.state == CallState.LIVE_AGENT_TRANSFER
 
         if is_live_transfer:
-            # Get full context for agent
+            # Get full context for agent (consumed by external agent desktop via API)
             agent_context = self.session_memory.get_full_context_for_agent(
                 self.session.call_id
             )
-            # In production: push to Genesys via API
-            self._transfer_to_genesys(agent_context)
-            self.log.info("transferred_to_live_agent")
+            self.log.info(
+                "live_agent_transfer_requested",
+                context_keys=list(agent_context.keys()) if agent_context else [],
+            )
         else:
             # Normal goodbye
             goodbye = "Thank you for calling. You'll receive a summary email shortly. Goodbye!"
@@ -491,19 +528,6 @@ class CallOrchestrator:
 
         return facts
 
-    def _transfer_to_genesys(self, context: dict):
-        """
-        Transfer call to Genesys Cloud with full context.
-        In production: use Genesys Cloud API to:
-          1. Initiate transfer to agent queue
-          2. Send context via Interaction Widget / screen-pop
-          3. Share document SAS URLs
-        """
-        import json
-        self.log.info("genesys_transfer_initiated", context_keys=list(context.keys()))
-
-        # Production implementation would use:
-        # from genesys_cloud_client import ApiClient, ConversationsApi
-        # conversations_api.post_conversations_call_transfer(...)
-        # with context payload for screen-pop
-        pass
+    # No provider-specific transfer implementation is defined here.
+    # Live-agent platforms should call the /api/calls/{call_id}/context
+    # endpoint (see api/main.py) and handle routing / screen-pop logic externally.

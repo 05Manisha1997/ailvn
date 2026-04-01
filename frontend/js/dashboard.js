@@ -2,15 +2,6 @@
  * dashboard.js — Live calls view with polling & activity feed
  */
 
-const DEMO_ACTIVITY = [
-    { color: 'act-teal', text: 'POL-001 (Sarah O\'Brien) — Hospital eligibility query resolved', time: '2m ago' },
-    { color: 'act-green', text: 'POL-002 (James Murphy) — Claim limit confirmed via RAG', time: '5m ago' },
-    { color: 'act-blue', text: 'POL-004 (Ciarán Walsh) — Deductible status provided', time: '11m ago' },
-    { color: 'act-yellow', text: 'POL-003 (Aoife Kelly) — Transferred to specialist (out-of-scope)', time: '18m ago' },
-    { color: 'act-teal', text: 'POL-005 (Niamh Brennan) — Surgery coverage confirmed at 90%', time: '24m ago' },
-    { color: 'act-green', text: 'POL-001 (Sarah O\'Brien) — Mental health coverage enquiry done', time: '31m ago' },
-];
-
 function renderCallCard(call) {
     const initials = call.caller_id ? call.caller_id.substring(0, 3).toUpperCase() : '???';
     const status = call.status || 'active';
@@ -25,6 +16,39 @@ function renderCallCard(call) {
       <span class="call-duration">Live</span>
       <span class="badge ${status}">${status}</span>
     </div>`;
+}
+
+function renderActivityFeed(calls = []) {
+    const feed = document.getElementById('activity-feed');
+    if (!feed) return;
+    if (!calls.length) {
+        feed.innerHTML = `
+        <div class="activity-item">
+          <div class="activity-dot act-blue"></div>
+          <span>No recent activity yet. Incoming calls will appear here.</span>
+          <span class="activity-time">now</span>
+        </div>`;
+        return;
+    }
+    const items = [...calls]
+        .sort((a, b) => (b.started_at || '').localeCompare(a.started_at || ''))
+        .slice(0, 8)
+        .map((call, idx) => {
+            const color = idx % 3 === 0 ? 'act-teal' : idx % 3 === 1 ? 'act-green' : 'act-blue';
+            const who = call.caller_id || call.id || 'Unknown caller';
+            const state = call.status || 'active';
+            return {
+                color,
+                text: `${who} — status ${state}`,
+                time: call.started_at ? timeAgo(call.started_at) : 'just now',
+            };
+        });
+    feed.innerHTML = items.map(item => `
+    <div class="activity-item">
+      <div class="activity-dot ${item.color}"></div>
+      <span>${item.text}</span>
+      <span class="activity-time">${item.time}</span>
+    </div>`).join('');
 }
 
 async function refreshCalls() {
@@ -55,17 +79,7 @@ async function refreshCalls() {
         empty.style.display = 'none';
         list.innerHTML = calls.map(renderCallCard).join('');
     }
-}
-
-function renderActivityFeed() {
-    const feed = document.getElementById('activity-feed');
-    if (!feed) return;
-    feed.innerHTML = DEMO_ACTIVITY.map(item => `
-    <div class="activity-item">
-      <div class="activity-dot ${item.color}"></div>
-      <span>${item.text}</span>
-      <span class="activity-time">${item.time}</span>
-    </div>`).join('');
+    renderActivityFeed(calls);
 }
 
 // Poll every 5 seconds
@@ -73,7 +87,6 @@ let dashboardInterval = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     refreshCalls();
-    renderActivityFeed();
     dashboardInterval = setInterval(() => {
         if (AppState.currentView === 'dashboard') refreshCalls();
     }, 5000);

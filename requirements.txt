@@ -88,7 +88,7 @@ pydantic_core==2.41.5
 Pygments==2.19.2
 python-dateutil==2.9.0.post0
 python-json-logger==4.0.0
-pywinpty==3.0.3
+pywinpty==3.0.3; platform_system == "Windows"
 PyYAML==6.0.3
 pyzmq==27.1.0
 referencing==0.37.0
@@ -137,6 +137,9 @@ azure-cognitiveservices-speech
 azure-storage-blob
 azure-search-documents
 langchain-openai
+# OpenAI Python SDK (api.openai.com + AzureOpenAI client in ai_service)
+openai>=1.40.0
 chromadb
 sendgrid
 pydantic-settings
+structlog

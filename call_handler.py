@@ -25,7 +25,6 @@ from config import settings
 from navigator import InsuranceVoiceNavigator
 from agents.tasks import build_crew_for_query
 from tts.elevenlabs_streamer import synthesize_to_bytes
-from tools.translator_api import translator
 from tools.template_verifier import verify_and_fix_template
 from portal.insurance_portal import get_insurance_portal
 
@@ -40,11 +39,12 @@ _active_calls: dict[str, dict] = {}
 # ────────────────────────────────────────────────────────────────────────────
 
 class SimulateRequest(BaseModel):
-    caller_id: str = "POL-001"
-    caller_phone: str = "+353-87-111-2233"
+    # Use "__sim__" with caller_phone set from the UI to simulate CLID without pre-filling member ID.
+    caller_id: str = "__sim__"
+    caller_phone: str = ""
     message: str
     conversation_history: list = []
-    demo_mode: bool = True
+    demo_mode: bool = False
 
 
 class SimulateResponse(BaseModel):
@@ -53,6 +53,9 @@ class SimulateResponse(BaseModel):
     agent_response: str
     conversation_history: list
     elapsed_ms: int
+    voice_id: Optional[str] = None
+    portal_intent: Optional[str] = None
+    portal_slots_filled: Optional[dict] = None
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -134,20 +137,11 @@ async def simulate_call_turn(body: SimulateRequest):
     """
     start = time.monotonic()
 
-    # Determine original language
-    detected_lang = await translator.detect_language(body.message)
-    
-    # Translate to English for CrewAI
-    if detected_lang != "en":
-        english_input = await translator.translate_text(body.message, target_lang="en")
-    else:
-        english_input = body.message
-
     loop = asyncio.get_event_loop()
-    agent_response = await loop.run_in_executor(
+    turn = await loop.run_in_executor(
         None,
         lambda: build_crew_for_query(
-            caller_input=english_input,
+            caller_input=body.message,
             caller_id=body.caller_id,
             caller_phone=body.caller_phone,
             conversation_history=body.conversation_history,
@@ -155,11 +149,12 @@ async def simulate_call_turn(body: SimulateRequest):
         ),
     )
 
-    # Translate back to caller's language
-    if detected_lang != "en":
-        final_response = await translator.translate_text(agent_response, target_lang=detected_lang)
-    else:
-        final_response = agent_response
+    final_response = turn.response_text
+
+    pr = turn.portal_render
+    voice_id = pr.voice_id if pr else None
+    portal_intent = pr.intent if pr else None
+    portal_slots = dict(pr.slots_filled) if pr else None
 
     updated_history = body.conversation_history + [
         {"role": "user", "content": body.message},
@@ -173,11 +168,47 @@ async def simulate_call_turn(body: SimulateRequest):
         agent_response=final_response,
         conversation_history=updated_history,
         elapsed_ms=elapsed_ms,
+        voice_id=voice_id,
+        portal_intent=portal_intent,
+        portal_slots_filled=portal_slots,
     )
+
+
+@router.get("/simulate/policyholders")
+async def list_simulator_policyholders():
+    """
+    Policyholders for the call simulator dropdown (Cosmos policyholders container, else small synthetic set).
+    """
+    items: list = []
+    try:
+        from database.cosmos_client import db
+
+        if db._container is not None:
+            items = db.list_policyholders(limit=25)
+    except Exception:
+        items = []
+    if not items:
+        from database.seed_data import build_synthetic_policyholders
+
+        items = build_synthetic_policyholders(8)
+
+    out = []
+    for r in items:
+        mid = r.get("member_id") or r.get("mem_id") or r.get("id") or ""
+        out.append(
+            {
+                "member_id": mid,
+                "name": r.get("name", ""),
+                "phone": r.get("phone", ""),
+                "plan_name": r.get("plan_name", ""),
+            }
+        )
+    return {"policyholders": out}
 
 
 class TTSRequest(BaseModel):
     text: str
+    voice_id: Optional[str] = None
 
 
 @router.post("/tts")
@@ -187,7 +218,7 @@ async def generate_tts(body: TTSRequest):
     If ElevenLabs is not configured, returns a flag so the frontend can fallback
     to browser-native SpeechSynthesis.
     """
-    audio_bytes = await synthesize_to_bytes(body.text)
+    audio_bytes = await synthesize_to_bytes(body.text, voice_id=body.voice_id)
     if not audio_bytes:
         # Signal to frontend to use browser TTS
         return JSONResponse(content={"fallback": True})

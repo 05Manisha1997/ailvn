@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Voice Navigator — Admin Portal</title>
+  <title>AILVN — Portal UI</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -20,7 +20,8 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback } = React;
 
-const API = 'http://localhost:8000/api';
+const API = `${window.location.origin}/portal/v1`;
+const APP_API = `${window.location.origin}`;
 
 // ── Color helpers ──────────────────────────────────────────────────────────
 const INTENT_COLORS = {
@@ -74,53 +75,6 @@ const Btn = ({ children, onClick, color='#38BDF8', outline, small, style }) => (
   }}>{children}</button>
 );
 
-// ── MOCK DATA for demo (replace with API calls) ────────────────────────────
-const MOCK_TEMPLATES = {
-  ACCOUNT_BALANCE: {
-    intent: 'ACCOUNT_BALANCE',
-    template: 'Your current balance is {rag.balance}. Your last transaction was {rag.last_txn}.',
-    sub_routes: [
-      { id:'SR-001', label:'NEGATIVE_BALANCE', condition:'rag.balance_numeric < 0',
-        response_override:'Your account is overdrawn by {rag.overdraft_amount}. Please deposit funds.' },
-      { id:'SR-002', label:'LARGE_BALANCE', condition:'rag.balance_numeric > 100000',
-        response_override:'Your balance is {rag.balance}. Would you like wealth management info?' },
-    ],
-    doc_sources: [{ type:'text', content:'MOCK', title:'account_data' }],
-    enabled: true,
-  },
-  COMPLAINT: {
-    intent: 'COMPLAINT',
-    template: 'I understand your concern about {rag.issue_type}. Ticket {rag.ticket_id} raised. Update within {rag.resolution_time}.',
-    sub_routes: [
-      { id:'SR-003', label:'ESCALATE', condition:"rag.severity == 'high'",
-        response_override:'Due to severity, connecting you to a specialist.', next_intent:'TRANSFER_AGENT' }
-    ],
-    doc_sources: [],
-    enabled: true,
-  },
-  PRODUCT_INFO: {
-    intent: 'PRODUCT_INFO',
-    template: '{rag.product_name}: {rag.description}. Rate: {rag.rate}. Min deposit: {rag.min_deposit}.',
-    sub_routes: [],
-    doc_sources: [{ type:'azure_blob', prefix:'products/' }],
-    enabled: true,
-  },
-  BILLING_QUERY: {
-    intent: 'BILLING_QUERY',
-    template: 'Your {rag.billing_period} bill is {rag.amount}, due {rag.due_date}. Status: {rag.payment_status}.',
-    sub_routes: [],
-    doc_sources: [],
-    enabled: true,
-  },
-  TRANSFER_AGENT: {
-    intent: 'TRANSFER_AGENT',
-    template: "Connecting you to {rag.department} now. Wait: {rag.wait_time}. Ref: {rag.reference_id}.",
-    sub_routes: [],
-    doc_sources: [],
-    enabled: true,
-  },
-};
-
 const MOCK_CALLS = [
   { call_id:'abc-001', caller_name:'John Smith', caller_phone:'+14155552671',
     is_verified:true, current_intent:'ACCOUNT_BALANCE',
@@ -139,51 +93,122 @@ const MOCK_CALLS = [
 // ── Pages ──────────────────────────────────────────────────────────────────
 
 function TemplatesPage() {
-  const [templates, setTemplates] = useState(MOCK_TEMPLATES);
-  const [selected, setSelected] = useState('ACCOUNT_BALANCE');
+  const [templates, setTemplates] = useState({});
+  const [selected, setSelected] = useState(null);
   const [editing, setEditing] = useState(null);
   const [saved, setSaved] = useState(false);
+  const [loadErr, setLoadErr] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const t = editing || templates[selected];
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadErr(null);
+    try {
+      const r = await fetch(`${API}/templates`);
+      if (!r.ok) throw new Error(await r.text());
+      const data = await r.json();
+      setTemplates(data);
+      const keys = Object.keys(data).sort();
+      setSelected(prev => (prev && data[prev] ? prev : (keys[0] || null)));
+    } catch (e) {
+      setLoadErr(e.message || String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const save = () => {
-    setTemplates(prev => ({ ...prev, [t.intent]: t }));
-    setEditing(null);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
+  useEffect(() => { load(); }, [ load ]);
 
-  const addSubRoute = () => {
-    const updated = {
-      ...t,
-      sub_routes: [...t.sub_routes, {
-        id: 'SR-' + Date.now(),
-        label: 'NEW_ROUTE',
-        condition: 'rag.field == value',
-        response_override: 'Override response here.'
-      }]
-    };
-    setEditing(updated);
-  };
+  async function addNewIntent() {
+    const intent = window.prompt('Intent key (e.g. hospital_covered):');
+    if (!intent || !intent.trim()) return;
+    const template = window.prompt('Template text with {rag.slot_name} placeholders:', 'Your answer is {rag.detail}.');
+    if (template == null) return;
+    try {
+      const r = await fetch(`${API}/templates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          intent: intent.trim(),
+          template,
+          enabled: true,
+          doc_sources: [],
+        }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      await load();
+      setSelected(intent.trim());
+    } catch (e) {
+      alert('Create failed: ' + (e.message || e));
+    }
+  }
 
-  const removeSubRoute = (id) => {
-    setEditing({ ...t, sub_routes: t.sub_routes.filter(sr => sr.id !== id) });
-  };
+  const t = (editing || (selected ? templates[selected] : null));
+  if (!t && !loading) {
+    return (
+      <Card>
+        {loadErr && <div style={{ color:'#F87171', marginBottom:12 }}>{loadErr}</div>}
+        <div style={{ color:'#94A3B8', marginBottom:12 }}>No templates loaded. Add an intent or check API connectivity.</div>
+        <Btn onClick={load} color='#38BDF8' small>Reload</Btn>
+        <Btn onClick={addNewIntent} color='#34D399' small style={{ marginLeft:8 }}>New intent</Btn>
+      </Card>
+    );
+  }
 
-  const updateSubRoute = (id, field, value) => {
-    setEditing({
-      ...t,
-      sub_routes: t.sub_routes.map(sr => sr.id === id ? { ...sr, [field]: value } : sr)
-    });
-  };
+  async function saveToServer() {
+    if (!t) return;
+    try {
+      let doc_sources = Array.isArray(t.doc_sources) ? t.doc_sources : [];
+      if (editing && editing.doc_sources_json != null && editing.doc_sources_json !== '') {
+        try { doc_sources = JSON.parse(editing.doc_sources_json); } catch (_) { /* keep previous */ }
+      }
+      const body = {
+        template: t.template,
+        voice_id: t.voice_id || null,
+        enabled: t.enabled !== false,
+        doc_sources,
+      };
+      const r = await fetch(`${API}/templates/${encodeURIComponent(t.intent)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      setEditing(null);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      await load();
+    } catch (e) {
+      alert('Save failed: ' + (e.message || e));
+    }
+  }
+
+  async function removeIntent() {
+    if (!t || t.intent === 'fallback_human') { alert('Cannot delete protected intent.'); return; }
+    if (!window.confirm(`Delete intent ${t.intent}?`)) return;
+    try {
+      const r = await fetch(`${API}/templates/${encodeURIComponent(t.intent)}`, { method: 'DELETE' });
+      if (!r.ok) throw new Error(await r.text());
+      setEditing(null);
+      await load();
+    } catch (e) {
+      alert('Delete failed: ' + (e.message || e));
+    }
+  }
+
+  if (loading || !t) {
+    return <Card><div style={{ color:'#94A3B8' }}>Loading templates from Cosmos…</div></Card>;
+  }
+
+  const docJson = JSON.stringify(t.doc_sources || [], null, 2);
 
   return (
     <div style={{ display:'grid', gridTemplateColumns:'220px 1fr', gap:20 }}>
-      {/* Sidebar */}
       <div>
         <div style={{ fontSize:11, color:'#64748B', fontWeight:700,
           textTransform:'uppercase', letterSpacing:1, marginBottom:10 }}>Intents</div>
-        {Object.keys(templates).map(intent => (
+        <Btn onClick={addNewIntent} color='#34D399' small style={{ width:'100%', marginBottom:10 }}>+ New intent</Btn>
+        {Object.keys(templates).sort().map(intent => (
           <div key={intent} onClick={() => { setSelected(intent); setEditing(null); }}
             style={{
               padding:'9px 12px', borderRadius:7, marginBottom:4, cursor:'pointer',
@@ -200,94 +225,70 @@ function TemplatesPage() {
         ))}
       </div>
 
-      {/* Editor */}
       <div>
-        <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:16 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:16, flexWrap:'wrap' }}>
           <Badge label={t.intent} color={INTENT_COLORS[t.intent] || '#64748B'} />
           <div style={{ flex:1 }} />
           {saved && <span style={{ color:'#34D399', fontSize:13 }}>✓ Saved</span>}
+          <Btn onClick={load} outline color='#64748B' small>Reload</Btn>
           {editing && <Btn onClick={() => setEditing(null)} outline color='#64748B' small>Cancel</Btn>}
-          <Btn onClick={save} color='#34D399' small>Save Template</Btn>
+          <Btn onClick={saveToServer} color='#34D399' small>Save to Cosmos</Btn>
+          {t.intent !== 'fallback_human' && (
+            <Btn onClick={removeIntent} color='#F87171' outline small>Delete</Btn>
+          )}
         </div>
+        {loadErr && <div style={{ color:'#F87171', marginBottom:12 }}>{loadErr}</div>}
 
         <Card style={{ marginBottom:16 }}>
           <div style={{ fontSize:12, fontWeight:700, color:'#94A3B8',
-            textTransform:'uppercase', letterSpacing:0.5, marginBottom:14 }}>Response Template</div>
+            textTransform:'uppercase', letterSpacing:0.5, marginBottom:14 }}>Response template</div>
           <Input
-            label="Template Text (use {rag.fieldname} for dynamic slots)"
+            label="Spoken text — use {rag.fieldname} for slots filled from RAG"
             value={t.template}
             onChange={val => setEditing({ ...(editing || t), template: val })}
             multiline
-            placeholder="Your balance is {rag.balance}..."
-            style={{ minHeight:70 }}
+            placeholder="Your policy covers {rag.coverage_pct} at {rag.hospital_name}."
+            style={{ minHeight:90 }}
           />
-          <div style={{ fontSize:11, color:'#64748B' }}>
-            Available slots: {[...t.template.matchAll(/\{rag\.(\w+)\}/g)].map(m =>
-              <code key={m[1]} style={{ background:'#0F172A', padding:'1px 6px',
-                borderRadius:4, marginLeft:4, color:'#38BDF8' }}>{m[1]}</code>
-            )}
+          <div style={{ fontSize:11, color:'#64748B', marginTop:8 }}>
+            Slots detected: {(t.template || '').match(/\{rag\.\w+\}/g)?.join('  ') || '—'}
           </div>
+          <Input
+            label="ElevenLabs voice_id (optional)"
+            value={t.voice_id || ''}
+            onChange={val => setEditing({ ...(editing || t), voice_id: val || null })}
+            placeholder="defaults to server ELEVENLABS_VOICE_ID"
+          />
+          <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, color:'#94A3B8', marginTop:8 }}>
+            <input type="checkbox"
+              checked={t.enabled !== false}
+              onChange={e => setEditing({ ...(editing || t), enabled: e.target.checked })} />
+            Intent enabled
+          </label>
         </Card>
 
-        {/* Sub Routes */}
-        <Card>
-          <div style={{ display:'flex', alignItems:'center', marginBottom:14 }}>
-            <div style={{ fontSize:12, fontWeight:700, color:'#94A3B8',
-              textTransform:'uppercase', letterSpacing:0.5 }}>Sub-Routes ({t.sub_routes.length})</div>
-            <Btn onClick={addSubRoute} color='#A78BFA' small style={{ marginLeft:'auto' }}>+ Add Route</Btn>
-          </div>
-          {t.sub_routes.length === 0
-            ? <div style={{ color:'#475569', fontSize:13, textAlign:'center', padding:20 }}>
-                No sub-routes. Add conditions for branching responses.
-              </div>
-            : t.sub_routes.map(sr => (
-              <div key={sr.id} style={{ background:'#0F172A', borderRadius:8, padding:14,
-                marginBottom:10, border:'1px solid #1E3A5F' }}>
-                <div style={{ display:'flex', gap:8, marginBottom:8 }}>
-                  <input value={sr.label}
-                    onChange={e => updateSubRoute(sr.id, 'label', e.target.value)}
-                    style={{ background:'transparent', border:'1px solid #334155', borderRadius:5,
-                      padding:'4px 10px', color:'#A78BFA', fontSize:12, fontWeight:700, width:160 }} />
-                  <code style={{ flex:1, background:'#1E293B', border:'none', borderRadius:5,
-                    padding:'4px 10px', color:'#FCD34D', fontSize:11 }}>
-                    <input value={sr.condition}
-                      onChange={e => updateSubRoute(sr.id, 'condition', e.target.value)}
-                      style={{ background:'transparent', border:'none', outline:'none',
-                        color:'#FCD34D', fontSize:11, fontFamily:'monospace', width:'100%' }} />
-                  </code>
-                  <Btn onClick={() => removeSubRoute(sr.id)} color='#F87171' outline small>✕</Btn>
-                </div>
-                <textarea value={sr.response_override}
-                  onChange={e => updateSubRoute(sr.id, 'response_override', e.target.value)}
-                  style={{ width:'100%', background:'#1E293B', border:'1px solid #334155',
-                    borderRadius:5, padding:'6px 10px', color:'#E2E8F0', fontSize:12,
-                    resize:'vertical', minHeight:50, fontFamily:'inherit' }} />
-                {sr.next_intent && (
-                  <div style={{ marginTop:6, fontSize:11, color:'#FB923C' }}>
-                    → Routes to: <Badge label={sr.next_intent} color='#FB923C' />
-                  </div>
-                )}
-              </div>
-            ))
-          }
-        </Card>
-
-        {/* Doc Sources */}
         <Card style={{ marginTop:16 }}>
           <div style={{ fontSize:12, fontWeight:700, color:'#94A3B8',
-            textTransform:'uppercase', letterSpacing:0.5, marginBottom:12 }}>Document Sources for RAG</div>
-          {t.doc_sources.length === 0
-            ? <div style={{ color:'#475569', fontSize:13 }}>No document sources configured. RAG will use general context.</div>
-            : t.doc_sources.map((src, i) => (
-              <div key={i} style={{ display:'flex', gap:8, alignItems:'center',
-                background:'#0F172A', borderRadius:6, padding:'8px 12px', marginBottom:6 }}>
-                <Badge label={src.type.toUpperCase()} color='#2DD4BF' />
-                <span style={{ fontSize:12, color:'#94A3B8', fontFamily:'monospace' }}>
-                  {src.prefix || src.title || src.content?.substring(0, 30) || '—'}
-                </span>
-              </div>
-            ))
-          }
+            textTransform:'uppercase', letterSpacing:0.5, marginBottom:12 }}>doc_sources (JSON, optional)</div>
+          <textarea
+            value={editing ? (editing.doc_sources_json != null ? editing.doc_sources_json : docJson) : docJson}
+            onChange={e => {
+              const base = editing || t;
+              setEditing({ ...base, doc_sources_json: e.target.value });
+            }}
+            onBlur={() => {
+              if (!editing || editing.doc_sources_json == null) return;
+              try {
+                const parsed = JSON.parse(editing.doc_sources_json || '[]');
+                setEditing({ ...editing, doc_sources: parsed, doc_sources_json: null });
+              } catch (_) { /* keep editing */ }
+            }}
+            style={{ width:'100%', minHeight:100, background:'#0F172A', border:'1px solid #334155',
+              borderRadius:6, padding:10, color:'#E2E8F0', fontFamily:'monospace', fontSize:12 }}
+          />
+          <div style={{ fontSize:11, color:'#64748B', marginTop:8 }}>
+            Example: <code style={{ color:'#38BDF8' }}>[{`{"type":"azure_blob","prefix":"policies/"}`}]</code>
+          </div>
         </Card>
       </div>
     </div>
@@ -432,11 +433,81 @@ function CallHistoryPage() {
   );
 }
 
+function AnalyticsPage() {
+  const [stats, setStats] = useState(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`${APP_API}/analytics`);
+        if (r.ok) setStats(await r.json());
+      } catch (_) {}
+    })();
+  }, []);
+  if (!stats) {
+    return <Card><div style={{ color:'#94A3B8' }}>Loading analytics…</div></Card>;
+  }
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12 }}>
+      <Card><div style={{ fontSize:11, color:'#64748B' }}>Calls Today</div><div style={{ fontSize:28, fontWeight:800 }}>{stats.calls_today ?? 0}</div></Card>
+      <Card><div style={{ fontSize:11, color:'#64748B' }}>Resolved %</div><div style={{ fontSize:28, fontWeight:800 }}>{stats.resolution_rate ?? 0}%</div></Card>
+      <Card><div style={{ fontSize:11, color:'#64748B' }}>Avg Handle Time</div><div style={{ fontSize:28, fontWeight:800 }}>{stats.avg_handle_time_sec ?? 0}s</div></Card>
+      <Card><div style={{ fontSize:11, color:'#64748B' }}>Transferred %</div><div style={{ fontSize:28, fontWeight:800 }}>{stats.transfer_rate ?? 0}%</div></Card>
+    </div>
+  );
+}
+
+function PolicyManagerPage() {
+  const [rows, setRows] = useState([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`${APP_API}/simulate/policyholders`);
+        if (r.ok) {
+          const j = await r.json();
+          setRows(j.policyholders || []);
+        }
+      } catch (_) {}
+    })();
+  }, []);
+  return (
+    <Card>
+      <div style={{ fontSize:12, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', marginBottom:12 }}>
+        Policyholders (from simulator API)
+      </div>
+      <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+        <thead>
+          <tr style={{ color:'#94A3B8', textAlign:'left' }}>
+            <th style={{ padding:'8px 6px' }}>Member ID</th>
+            <th style={{ padding:'8px 6px' }}>Name</th>
+            <th style={{ padding:'8px 6px' }}>Phone</th>
+            <th style={{ padding:'8px 6px' }}>Plan</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.member_id} style={{ borderTop:'1px solid #334155' }}>
+              <td style={{ padding:'8px 6px' }}>{r.member_id}</td>
+              <td style={{ padding:'8px 6px' }}>{r.name}</td>
+              <td style={{ padding:'8px 6px' }}>{r.phone}</td>
+              <td style={{ padding:'8px 6px' }}>{r.plan_name}</td>
+            </tr>
+          ))}
+          {!rows.length && (
+            <tr><td colSpan="4" style={{ padding:'10px 6px', color:'#64748B' }}>No policyholders available.</td></tr>
+          )}
+        </tbody>
+      </table>
+    </Card>
+  );
+}
+
 // ── App Shell ──────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
   { id:'templates', label:'Response Templates', icon:'⚙️' },
   { id:'live',      label:'Live Calls',         icon:'📞' },
   { id:'history',   label:'Call History',       icon:'📋' },
+  { id:'analytics', label:'Analytics',          icon:'📊' },
+  { id:'policies',  label:'Policy Manager',     icon:'🗂️' },
 ];
 
 function App() {
@@ -449,9 +520,9 @@ function App() {
         padding:20, display:'flex', flexDirection:'column' }}>
         <div style={{ marginBottom:32 }}>
           <div style={{ fontSize:16, fontWeight:800, color:'#38BDF8', letterSpacing:-0.5 }}>
-            Voice Navigator
+            AILVN
           </div>
-          <div style={{ fontSize:11, color:'#475569', marginTop:2 }}>Admin Portal</div>
+          <div style={{ fontSize:11, color:'#475569', marginTop:2 }}>AI powered Laya Voice Navigator</div>
         </div>
 
         {NAV_ITEMS.map(item => (
@@ -472,7 +543,7 @@ function App() {
 
         <div style={{ marginTop:'auto', padding:'12px 0',
           borderTop:'1px solid #1E293B', fontSize:11, color:'#334155' }}>
-          <div>API: localhost:8000</div>
+          <div>API: {API}</div>
           <div style={{ marginTop:4, display:'flex', alignItems:'center', gap:6 }}>
             <div style={{ width:6, height:6, borderRadius:'50%', background:'#34D399' }} />
             System Online
@@ -490,11 +561,15 @@ function App() {
           {page === 'templates' && 'Configure intent mappings, response templates, and sub-routing logic.'}
           {page === 'live' && 'Monitor active calls in real-time. Transfer to live agents if needed.'}
           {page === 'history' && 'Review completed calls, intent journeys, and summaries.'}
+          {page === 'analytics' && 'Operational analytics for calls and AI performance.'}
+          {page === 'policies' && 'Policyholder directory and plan snapshot.'}
         </div>
 
         {page === 'templates' && <TemplatesPage />}
         {page === 'live'      && <LiveCallsPage />}
         {page === 'history'   && <CallHistoryPage />}
+        {page === 'analytics' && <AnalyticsPage />}
+        {page === 'policies'  && <PolicyManagerPage />}
       </div>
     </div>
   );

@@ -6,12 +6,16 @@ Falls back to in-memory defaults when Cosmos is unavailable.
 """
 from __future__ import annotations
 
+import json
+import os
+import re
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import Optional
-import re
+from urllib.parse import urlparse
 
 from config import settings
+from utils.logger import logger
 
 
 @dataclass
@@ -77,27 +81,92 @@ DEFAULT_INSURANCE_TEMPLATES: dict[str, InsuranceTemplate] = {
 }
 
 
+def _csr_smalltalk_seed_path() -> str:
+    return os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "csr_smalltalk_seed.json")
+
+
+def _templates_from_json_seed() -> list[InsuranceTemplate]:
+    """CSR + small-talk rows for Cosmos only — not merged into DEFAULT_INSURANCE_TEMPLATES."""
+    path = _csr_smalltalk_seed_path()
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as f:
+            payload = json.load(f)
+    except Exception as e:
+        logger.warning("csr_smalltalk_seed_read_failed", path=path, error=str(e))
+        return []
+    out: list[InsuranceTemplate] = []
+    for row in payload.get("templates") or []:
+        if not row.get("intent") or row.get("template") is None:
+            continue
+        out.append(
+            InsuranceTemplate(
+                intent=str(row["intent"]).strip(),
+                template=str(row["template"]),
+                voice_id=row.get("voice_id"),
+                enabled=bool(row.get("enabled", True)),
+                doc_sources=list(row.get("doc_sources") or []),
+            )
+        )
+    return out
+
+
+def _upsert_json_seed_missing(container, existing: set) -> int:
+    """Insert seed JSON templates whose intent id is not yet in ``existing``."""
+    added = 0
+    for t in _templates_from_json_seed():
+        if t.intent not in existing:
+            container.upsert_item({**asdict(t), "id": t.intent})
+            existing.add(t.intent)
+            added += 1
+    return added
+
+
 class InsurancePortal:
     def __init__(self):
         self._cache: dict[str, InsuranceTemplate] = {}
         self._container = None
+        self._last_init_error: Optional[str] = None
         self._init_storage()
         self._load_templates()
 
+    def _container_id(self) -> str:
+        return settings.cosmos_db_container_templates
+
     def _init_storage(self):
+        self._last_init_error = None
         try:
             if not settings.cosmos_endpoint or not settings.cosmos_key:
+                logger.warning(
+                    "insurance_portal_cosmos_skipped",
+                    reason="cosmos endpoint or key empty in settings",
+                    cosmos_env_keys=sorted(k for k in os.environ if "cosmos" in k.lower()),
+                )
                 return
-            from azure.cosmos import CosmosClient, PartitionKey
+            from azure.cosmos import PartitionKey
 
-            client = CosmosClient(settings.cosmos_endpoint, credential=settings.cosmos_key)
-            db = client.create_database_if_not_exists(id=settings.cosmos_database)
+            from config.azure_clients import get_cosmos_client
+
+            db_name = (
+                (settings.cosmos_database or settings.cosmos_db_database or "voice_navigator").strip()
+                or "voice_navigator"
+            )
+            client = get_cosmos_client()
+            db = client.create_database_if_not_exists(id=db_name)
             self._container = db.create_container_if_not_exists(
-                id="response_templates",
+                id=self._container_id(),
                 partition_key=PartitionKey(path="/intent"),
             )
-        except Exception:
+            logger.info(
+                "insurance_portal_cosmos_ready",
+                database=db_name,
+                container=self._container_id(),
+            )
+        except Exception as e:
             self._container = None
+            self._last_init_error = str(e)
+            logger.warning("insurance_portal_cosmos_init_failed", error=str(e))
 
     def _load_templates(self):
         self._cache = dict(DEFAULT_INSURANCE_TEMPLATES)
@@ -108,7 +177,15 @@ class InsurancePortal:
             if not items:
                 for t in DEFAULT_INSURANCE_TEMPLATES.values():
                     self._container.upsert_item({**asdict(t), "id": t.intent})
-                return
+                existing_ids = {i.get("intent") or i.get("id") for i in self._container.read_all_items()}
+                seed_added = _upsert_json_seed_missing(self._container, existing_ids)
+                items = list(self._container.read_all_items())
+                logger.info(
+                    "insurance_portal_cosmos_seeded_defaults",
+                    count=len(items),
+                    csr_smalltalk_seed_added=seed_added,
+                    container=self._container_id(),
+                )
             for item in items:
                 self._cache[item["intent"]] = InsuranceTemplate(
                     intent=item["intent"],
@@ -119,8 +196,97 @@ class InsurancePortal:
                     created_at=item.get("created_at", ""),
                     updated_at=item.get("updated_at", ""),
                 )
-        except Exception:
+        except Exception as e:
+            logger.warning("insurance_portal_cosmos_load_failed", error=str(e))
             self._cache = dict(DEFAULT_INSURANCE_TEMPLATES)
+
+    def cosmos_diagnostics(self, include_env_name_list: bool = False) -> dict:
+        """For /portal/v1/cosmos-status — explains why Data Explorer may look empty."""
+        ep = (settings.cosmos_endpoint or "").strip()
+        out: dict = {
+            "endpoint_configured": bool(ep and settings.cosmos_key),
+            "database_id": settings.cosmos_database or settings.cosmos_db_database,
+            "container_id": self._container_id(),
+            "client_connected": self._container is not None,
+            "last_init_error": self._last_init_error,
+            "cosmos_related_env_var_names": sorted(
+                k for k in os.environ if "cosmos" in k.lower()
+            ),
+            "azure_container_apps_env_names": (
+                "Azure Container Apps only allows a-z, A-Z, 0-9, and underscore in env var NAMES. "
+                "Names with hyphens (e.g. cosmos-db-key) are rejected or never injected — use "
+                "COSMOS_DB_ENDPOINT and COSMOS_DB_KEY instead."
+            ),
+        }
+        if include_env_name_list:
+            out["process_env_var_names"] = sorted(os.environ.keys())
+        if ep:
+            try:
+                out["endpoint_host"] = urlparse(ep).hostname
+            except Exception:
+                out["endpoint_host"] = None
+        if not out["endpoint_configured"]:
+            out["hint"] = (
+                "Set environment variables named exactly COSMOS_DB_ENDPOINT and COSMOS_DB_KEY "
+                "(underscores, no hyphens). Map secrets to those names in Container App → "
+                "Containers → Environment variables. Then use /portal/v1/cosmos-status?debug_env=1 "
+                "to confirm those names appear under process_env_var_names."
+            )
+            return out
+        if not self._container:
+            out["hint"] = (
+                "Keys are set but the SDK could not open the database/container. "
+                "Confirm Core (SQL) API account, key is valid, and check app logs for the error above."
+            )
+            return out
+        try:
+            out["item_count"] = len(list(self._container.read_all_items()))
+        except Exception as e:
+            out["read_error"] = str(e)
+        return out
+
+    def seed_defaults_if_empty(self) -> dict:
+        """Upsert built-in templates when the container has no items (idempotent if already populated)."""
+        if not self._container:
+            return {"ok": False, "error": "cosmos_not_connected", "diagnostics": self.cosmos_diagnostics()}
+        try:
+            items = list(self._container.read_all_items())
+            if items:
+                self._load_templates()
+                return {"ok": True, "seeded": False, "item_count": len(items)}
+            for t in DEFAULT_INSURANCE_TEMPLATES.values():
+                self._container.upsert_item({**asdict(t), "id": t.intent})
+            self._load_templates()
+            n = len(list(self._container.read_all_items()))
+            logger.info("insurance_portal_manual_seed", item_count=n)
+            return {"ok": True, "seeded": True, "item_count": n}
+        except Exception as e:
+            logger.warning("insurance_portal_seed_failed", error=str(e))
+            return {"ok": False, "error": str(e)}
+
+    def upsert_missing_default_templates(self) -> dict:
+        """
+        Upsert missing legacy defaults (RAG slots) and missing rows from ``data/csr_smalltalk_seed.json``.
+        Does not overwrite existing Cosmos documents.
+        """
+        if not self._container:
+            return {"ok": False, "error": "cosmos_not_connected"}
+        try:
+            existing = {i.get("intent") or i.get("id") for i in self._container.read_all_items()}
+            added = 0
+            for t in DEFAULT_INSURANCE_TEMPLATES.values():
+                if t.intent not in existing:
+                    self._container.upsert_item({**asdict(t), "id": t.intent})
+                    existing.add(t.intent)
+                    added += 1
+            added += _upsert_json_seed_missing(self._container, existing)
+            self._load_templates()
+            n = len(list(self._container.read_all_items()))
+            logger.info("insurance_portal_upsert_missing", added=added, total=n)
+            return {"ok": True, "added": added, "item_count": n}
+        except Exception as e:
+            logger.warning("insurance_portal_upsert_missing_failed", error=str(e))
+            return {"ok": False, "error": str(e)}
 
     def list_templates(self) -> dict[str, InsuranceTemplate]:
         return self._cache
@@ -128,17 +294,44 @@ class InsurancePortal:
     def get_template(self, intent: str) -> InsuranceTemplate:
         return self._cache.get(intent) or self._cache["fallback_human"]
 
-    def save_template(self, intent: str, template: str, voice_id: Optional[str] = None):
+    def save_template(
+        self,
+        intent: str,
+        template: str,
+        voice_id: Optional[str] = None,
+        enabled: bool = True,
+        doc_sources: Optional[list] = None,
+    ):
         key = intent.strip()
+        prev = self._cache.get(key)
+        sources: list = []
+        if doc_sources is not None:
+            sources = list(doc_sources)
+        elif prev and prev.doc_sources:
+            sources = list(prev.doc_sources)
+        prev_voice = prev.voice_id if prev else None
         obj = InsuranceTemplate(
             intent=key,
             template=template.strip(),
-            voice_id=voice_id,
-            created_at=self._cache.get(key).created_at if key in self._cache else "",
+            voice_id=voice_id if voice_id is not None else prev_voice,
+            enabled=enabled,
+            doc_sources=sources,
+            created_at=(prev.created_at if prev and prev.created_at else datetime.utcnow().isoformat()),
+            updated_at=datetime.utcnow().isoformat(),
         )
         self._cache[key] = obj
         if self._container:
             self._container.upsert_item({**asdict(obj), "id": obj.intent})
+
+    def delete_template(self, intent: str) -> None:
+        key = intent.strip()
+        if key in self._cache:
+            del self._cache[key]
+        if self._container:
+            try:
+                self._container.delete_item(item=key, partition_key=key)
+            except Exception:
+                pass
 
     def fill_template(self, intent: str, rag_values: dict, fallback: str = "information not available") -> str:
         template = self.get_template(intent).template

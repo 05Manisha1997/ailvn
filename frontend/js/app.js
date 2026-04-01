@@ -3,13 +3,14 @@
  */
 
 // ── Config ──────────────────────────────────────────────────────────────────
-const API_BASE = (window.location.port === '3000' || window.location.port === '')
+const isLocalDevHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+const API_BASE = isLocalDevHost
   ? 'http://localhost:8000'
   : window.location.origin;
 
 // ── Global State ─────────────────────────────────────────────────────────────
 const AppState = {
-  currentView: 'dashboard',
+  currentView: 'landing',
   conversationHistory: [],
   activeCalls: [],
 };
@@ -18,6 +19,7 @@ const AppState = {
 function showView(viewName) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+  document.body.classList.toggle('landing-mode', viewName === 'landing');
 
   const view = document.getElementById(`view-${viewName}`);
   const navBtn = document.getElementById(`nav-${viewName}`);
@@ -27,11 +29,9 @@ function showView(viewName) {
   AppState.currentView = viewName;
 
   const titles = {
+    landing: ['Welcome', 'AILVN: AI powered Laya Voice Navigator'],
     dashboard: ['Live Calls', 'Real-time call monitoring'],
     simulator: ['Call Simulator', 'Test the AI agent pipeline'],
-    analytics: ['Analytics', 'Performance metrics & insights'],
-    policies: ['Policy Manager', 'Manage policyholders & documents'],
-    templates: ['Response Templates', 'Manage agent response formatting'],
   };
   const [title, sub] = titles[viewName] || ['Dashboard', ''];
   document.getElementById('view-title').textContent = title;
@@ -40,6 +40,9 @@ function showView(viewName) {
   // Lazy-init charts only when analytics is opened
   if (viewName === 'analytics' && typeof initCharts === 'function') {
     setTimeout(initCharts, 100);
+  }
+  if (viewName === 'simulator' && typeof loadSimulatorPolicyholders === 'function') {
+    loadSimulatorPolicyholders();
   }
 }
 
@@ -54,12 +57,13 @@ const api = {
       return null;
     }
   },
-  async post(path, body) {
+  async post(path, body, options = {}) {
     try {
       const r = await fetch(`${API_BASE}${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: options.signal,
       });
       if (!r.ok) throw new Error(r.statusText);
       return r.json();
@@ -116,5 +120,5 @@ document.addEventListener('DOMContentLoaded', () => {
   if (savedTheme === 'light') {
     document.body.classList.add('light-theme');
   }
-  showView('dashboard');
+  showView('landing');
 });

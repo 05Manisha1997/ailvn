@@ -6,7 +6,6 @@ Phase 1 — Phone Number Detection & Validation
 Steps:
 1. Extract phone number from caller ID string or speech text
 2. Normalize to E.164 format using libphonenumber (free, offline)
-3. Optionally validate with Twilio Lookup API (accurate carrier data)
 """
 import re
 import phonenumbers
@@ -27,28 +26,16 @@ class PhoneValidationResult:
     e164: Optional[str] = None           # e.g. "+14155552671"
     national_format: Optional[str] = None # e.g. "(415) 555-2671"
     country_code: Optional[str] = None   # e.g. "US"
-    carrier: Optional[str] = None        # Only with Twilio Lookup
-    line_type: Optional[str] = None      # mobile/landline/voip
+    carrier: Optional[str] = None        # Reserved for future enrichment
+    line_type: Optional[str] = None      # Reserved for future enrichment
     error: Optional[str] = None
 
 
 class PhoneValidatorService:
     """
-    Validates phone numbers offline using libphonenumber.
-    Optionally uses Twilio Lookup for carrier/line-type data.
+    Validates phone numbers offline using libphonenumber only.
+    No external telephony providers (Twilio, etc.) are required.
     """
-
-    def __init__(self):
-        self._twilio_client = None
-
-    def _get_twilio_client(self):
-        if self._twilio_client is None:
-            from twilio.rest import Client
-            self._twilio_client = Client(
-                settings.twilio_account_sid,
-                settings.twilio_auth_token,
-            )
-        return self._twilio_client
 
     def extract_from_text(self, text: str) -> Optional[str]:
         """
@@ -121,28 +108,7 @@ class PhoneValidatorService:
             country_code=region,
         )
 
-        # Optional: Twilio Lookup for carrier/line-type data
-        if settings.use_twilio_lookup:
-            result = self._enrich_with_twilio(e164, result)
-
         log.info("phone_validated", e164=e164, country=region)
-        return result
-
-    def _enrich_with_twilio(
-        self, e164: str, result: PhoneValidationResult
-    ) -> PhoneValidationResult:
-        """Enriches validation result with Twilio Lookup data."""
-        try:
-            client = self._get_twilio_client()
-            lookup = client.lookups.v2.phone_numbers(e164).fetch(
-                fields=["line_type_intelligence"]
-            )
-            tti = lookup.line_type_intelligence
-            if tti:
-                result.carrier = tti.get("carrier_name")
-                result.line_type = tti.get("type")  # mobile/landline/voip
-        except Exception as e:
-            logger.warning("twilio_lookup_failed", error=str(e), e164=e164)
         return result
 
     def is_blocked_number(self, e164: str, blocklist: list[str] = None) -> bool:
