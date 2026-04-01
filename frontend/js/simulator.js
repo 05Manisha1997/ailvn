@@ -54,7 +54,7 @@ function setSendButtonLoading(isLoading) {
 function finishTTSCycle() {
   ttsAudioPlaying = false;
   currentTtsAudio = null;
-  listenBlockedUntil = Date.now() + 1000;
+  listenBlockedUntil = Date.now() + 1200;
   updateMicButtonUI();
   if (talkModeActive) requestTalkModeListening(350);
 }
@@ -124,7 +124,8 @@ function onPolicyholderChange() {
     const bubble = document.getElementById('sim-initial-msg');
     if (bubble) bubble.textContent = getSimWelcomeText();
   }
-  triggerAutoRingAndConnect();
+  const simViewActive = !!document.getElementById('view-simulator')?.classList.contains('active');
+  if (simViewActive) triggerAutoRingAndConnect();
 }
 
 function ringBurst() {
@@ -187,12 +188,31 @@ function normalizeSpeech(text) {
   return (text || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function isLikelyNoise(transcript) {
+  const t = normalizeSpeech(transcript);
+  if (!t) return true;
+  if (t.length < 3) return true;
+  const tokens = t.split(' ').filter(Boolean);
+  if (tokens.length === 1 && tokens[0].length <= 2) return true;
+  const filler = new Set(['uh', 'um', 'hmm', 'mm', 'ah', 'eh', 'noise', 'static']);
+  return tokens.every(tok => filler.has(tok));
+}
+
 function likelyAssistantEcho(transcript) {
   const heard = normalizeSpeech(transcript);
   const spoken = normalizeSpeech(lastAssistantText);
   if (!heard || !spoken) return false;
   if (heard.length < 14) return false;
-  return spoken.includes(heard) || heard.includes(spoken.slice(0, Math.min(heard.length, spoken.length)));
+  if (spoken.includes(heard) || heard.includes(spoken.slice(0, Math.min(heard.length, spoken.length)))) {
+    return true;
+  }
+  const heardTokens = new Set(heard.split(' ').filter(Boolean));
+  const spokenTokens = spoken.split(' ').filter(Boolean);
+  let overlap = 0;
+  for (const tok of spokenTokens) {
+    if (heardTokens.has(tok)) overlap += 1;
+  }
+  return spokenTokens.length > 0 && (overlap / spokenTokens.length) > 0.7;
 }
 
 function requestTalkModeListening(delayMs = 0) {
@@ -458,6 +478,7 @@ function initSpeechRecognition() {
   recognition.continuous = true;
   recognition.interimResults = true;
   recognition.lang = 'en-US';
+  recognition.maxAlternatives = 1;
 
   recognition.onresult = (event) => {
     let finalTranscript = '';
@@ -474,11 +495,13 @@ function initSpeechRecognition() {
     if (finalTranscript) {
       const normalized = finalTranscript.trim();
       if (!normalized) return;
+      if (isLikelyNoise(normalized)) return;
       if (talkModeActive) {
+        if (likelyAssistantEcho(normalized)) return;
         talkSpeechBuffer = `${talkSpeechBuffer} ${normalized}`.trim();
         if (talkCommitTimer) clearTimeout(talkCommitTimer);
         // Wait briefly for the caller to finish speaking before sending.
-        talkCommitTimer = setTimeout(commitTalkSpeechBuffer, 950);
+        talkCommitTimer = setTimeout(commitTalkSpeechBuffer, 1200);
       } else {
         input.value = normalized;
         // Auto send when finishing speech
@@ -566,6 +589,7 @@ async function playTTS(text, voiceId) {
     // Prevent assistant voice from being captured as next user input.
     if (isRecording) stopRecording();
     ttsAudioPlaying = true;
+    listenBlockedUntil = Date.now() + 15000;
     updateMicButtonUI();
 
     activeTtsAbortController = new AbortController();

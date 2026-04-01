@@ -171,8 +171,16 @@ def classify_intent_with_retry(user_text: str) -> str:
             {"role": "user", "content": f"Classify this insurance member utterance:\n{user_text}"},
         ],
         temperature=0.0,
+        timeout=12.0,
     )
-    return (response.choices[0].message.content or "").strip()
+    label = (response.choices[0].message.content or "").strip()
+    if label in CLASSIFIER_INTENT_LABELS:
+        return label
+    low = label.lower()
+    for allowed in CLASSIFIER_INTENT_LABELS:
+        if allowed.lower() == low:
+            return allowed
+    raise ValueError(f"Unsupported classifier label: {label}")
 
 
 _intent_log_container = None

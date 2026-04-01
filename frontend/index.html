@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="css/style.css" />
 </head>
 
-<body>
+<body class="landing-mode">
   <!-- ─── Sidebar ──────────────────────────────────────────────────── -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-logo">
@@ -99,7 +99,7 @@
     <!-- ════════════════════════════════════════════════════════════ -->
     <!--  VIEW: Landing                                               -->
     <!-- ════════════════════════════════════════════════════════════ -->
-    <section class="view" id="view-landing">
+    <section class="view active" id="view-landing">
       <div class="landing-hero card">
         <div class="landing-image-wrap">
           <img
@@ -112,7 +112,7 @@
             <h2>Welcome to AILVN</h2>
             <p class="landing-sub">AI powered Laya Voice Navigator</p>
             <p class="landing-desc">One stop solution for all your queries on policies.</p>
-            <button class="btn btn-primary" onclick="showView('simulator')">Call</button>
+            <button class="btn btn-primary" onclick="startLandingCall()">Call</button>
           </div>
         </div>
       </div>
@@ -121,7 +121,7 @@
     <!-- ════════════════════════════════════════════════════════════ -->
     <!--  VIEW: Live Calls Dashboard                                  -->
     <!-- ════════════════════════════════════════════════════════════ -->
-    <section class="view active" id="view-dashboard">
+    <section class="view" id="view-dashboard">
       <!-- KPI Row -->
       <div class="kpi-grid">
         <div class="kpi-card" id="kpi-active">

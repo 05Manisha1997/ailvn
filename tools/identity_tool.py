@@ -162,6 +162,7 @@ def _verify_identity_logic(
     phone: str,
     security_answer_1: str = "",
     security_answer_2: str = "",
+    require_member_and_dob: bool = False,
 ) -> dict:
     """Core verification logic returning a dictionary."""
     record = None
@@ -217,7 +218,13 @@ def _verify_identity_logic(
             record.get("security_answer_1", "")
         ) and _norm_sec(security_answer_2) == _norm_sec(record.get("security_answer_2", ""))
 
-    if email_dob_match or id_dob_match or phone_id_match or (security_ok and id_match):
+    if require_member_and_dob:
+        if not id_dob_match:
+            return {
+                "verified": False,
+                "reason": "Member ID and DOB must both match our records.",
+            }
+    elif email_dob_match or id_dob_match or phone_id_match or (security_ok and id_match):
         pass
     else:
         return {

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from config import settings
+from ai_service import classify_intent_with_retry, map_llm_intent_to_insurance_template
 from templates.response_templates import TEMPLATES, fill_template
 from tools.identity_tool import _verify_identity_logic
 from rag.db_retriever import get_member_data
@@ -151,7 +152,10 @@ def _canonical_member_id_from_text(text: str) -> str:
     """
     if not text:
         return "unknown"
-    upper = _speech_words_to_digits(text).upper()
+    # Spelled-out letters P-O-L must run before _speech_words_to_digits, which maps
+    # standalone "o" -> "0" and would break "p o l" into P0L (not POL).
+    t = re.sub(r"\bP\s*[-]?\s*O\s*[-]?\s*L\b", "POL", text, flags=re.IGNORECASE)
+    upper = _speech_words_to_digits(t).upper()
     # Keep only alnum so "p o l-001" becomes "POL001".
     compact = re.sub(r"[^A-Z0-9]", "", upper)
     # Capture only the first 1-3 digits immediately following POL.
@@ -167,6 +171,7 @@ def _canonical_dob_from_text(text: str) -> str:
     Parse DOB from tolerant variants and normalize to YYYY-MM-DD:
     - 1985-03-14, 1985/03/14, 1985 03 14
     - spoken chunky digits: "1985 03 14"
+    - year + glued month/day: "1985 0314"
     """
     if not text:
         return ""
@@ -178,6 +183,18 @@ def _canonical_dob_from_text(text: str) -> str:
         nums = re.findall(r"\d+", m.group(0))
         if len(nums) >= 3:
             return f"{int(nums[0]):04d}-{int(nums[1]):02d}-{int(nums[2]):02d}"
+
+    # 1b) Year, space, then 4-digit MMDD (common typing/STT: "1985 0314").
+    m15 = re.search(
+        r"\b((?:19|20)\d{2})\s+(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\b",
+        prepared,
+    )
+    if m15:
+        return (
+            f"{int(m15.group(1)):04d}-"
+            f"{int(m15.group(2)):02d}-"
+            f"{int(m15.group(3)):02d}"
+        )
 
     # 2) Fully compact numeric stream (e.g. from noisy STT around symbols/spaces).
     digits = re.sub(r"\D", "", prepared)
@@ -267,6 +284,16 @@ def _intent_from_service(caller_input: str, caller_id: str, conversation_history
                     return data
         except Exception:
             pass
+
+    # Primary in-process classifier (OpenAI/Azure/Ollama via ai_service.py).
+    # Falls through to rule-based heuristics if the model is unavailable.
+    try:
+        llm_label = classify_intent_with_retry(caller_input or "")
+        mapped_intent = map_llm_intent_to_insurance_template(llm_label)
+        if mapped_intent:
+            return {"intent": mapped_intent, "intent_label": llm_label, "source": "llm"}
+    except Exception:
+        pass
 
     q = caller_input.lower()
     sq = q.strip()
@@ -418,7 +445,14 @@ def build_crew_for_query(
         return CrewTurnResult(response_text=_demo_response(caller_input, caller_id, caller_phone))
 
     member_id, email, dob = _extract_profile_fields(caller_input, conversation_history, caller_id)
-    verification = _verify_identity_logic(member_id=member_id, dob=dob, email=email, phone=caller_phone)
+    strict_sim_verify = _is_sim_caller_id(caller_id)
+    verification = _verify_identity_logic(
+        member_id=member_id,
+        dob=dob,
+        email=email,
+        phone=caller_phone,
+        require_member_and_dob=strict_sim_verify,
+    )
     if not verification.get("verified"):
         # Call simulator: phone comes from selected policyholder; user must type member ID + DOB.
         if _is_sim_caller_id(caller_id) and not (caller_phone or "").strip():

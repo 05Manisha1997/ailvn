@@ -46,6 +46,10 @@ function showView(viewName) {
   }
 }
 
+function startLandingCall() {
+  showView('simulator');
+}
+
 // ── API Client ────────────────────────────────────────────────────────────────
 const api = {
   async get(path) {
