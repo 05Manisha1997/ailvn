@@ -3,7 +3,7 @@
   "templates": [
     {
       "intent": "smalltalk_greeting",
-      "template": "Hello, and thank you for calling InsureCo. I'm here to help with your plan, claims, or benefits. How can I assist you today?",
+      "template": "Hi there — thanks for calling AILVN. I'm glad you're here. Whenever you're ready, tell me what you'd like to know about your policy.",
       "enabled": true,
       "doc_sources": []
     },
@@ -21,7 +21,7 @@
     },
     {
       "intent": "smalltalk_goodbye",
-      "template": "Thank you for calling InsureCo. Take care, and don't hesitate to reach out if you need us again.",
+      "template": "Thank you for calling AILVN. Take care, and reach out anytime you need us.",
       "enabled": true,
       "doc_sources": []
     },

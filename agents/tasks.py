@@ -18,6 +18,7 @@ from tools.identity_tool import _verify_identity_logic
 from rag.db_retriever import get_member_data
 from rag.policy_retriever import retrieve_policy_clauses
 from portal.portal_render import PortalRenderResult, render_portal_response
+from portal.insurance_portal import get_insurance_portal
 
 
 @dataclass
@@ -26,6 +27,29 @@ class CrewTurnResult:
 
     response_text: str
     portal_render: Optional[PortalRenderResult] = None
+    # When portal_render is None (verification prompts, etc.), use this for /tts so voice matches post-verify.
+    voice_id: Optional[str] = None
+    # True when client should queue or offer live-agent handoff (portal dashboard).
+    suggest_live_agent: bool = False
+
+
+def _preferred_tts_voice_id() -> Optional[str]:
+    """ElevenLabs voice aligned with portal intents (same persona as after verification)."""
+    try:
+        portal = get_insurance_portal()
+        for key in (
+            "smalltalk_greeting",
+            "hospital_covered",
+            "treatment_covered",
+            "fallback_human",
+        ):
+            vid = portal.get_template(key).voice_id
+            if vid:
+                return vid
+    except Exception:
+        pass
+    v = (settings.elevenlabs_voice_id or "").strip()
+    return v or None
 
 
 # ── Demo simulation (no real LLM calls) ──────────────────────────────────────
@@ -260,6 +284,65 @@ def _is_identity_only_utterance(text: str) -> bool:
     return not any(w in t for w in question_markers)
 
 
+def _smalltalk_intent_quick(caller_input: str) -> dict | None:
+    """
+    Deterministic small talk + light pleasantries before the LLM.
+    Stops "hello" / "hi" from being mislabeled as insurance intents.
+    """
+    raw = (caller_input or "").strip()
+    if not raw:
+        return None
+    q = raw.lower()
+    sq = q.strip()
+    sq_nopunct = sq.rstrip("?!.,").strip()
+    if len(sq) > 96:
+        return None
+
+    if sq_nopunct in (
+        "hi",
+        "hello",
+        "hey",
+        "yo",
+        "hiya",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "good day",
+        "greetings",
+        "hello there",
+        "hi there",
+        "hey there",
+    ):
+        return {"intent": "smalltalk_greeting", "source": "rules_smalltalk"}
+    if sq_nopunct.startswith(
+        ("hi ", "hello ", "hey ", "yo ", "hiya ", "good morning ", "good afternoon ", "good evening ")
+    ):
+        if len(sq_nopunct) <= 48:
+            return {"intent": "smalltalk_greeting", "source": "rules_smalltalk"}
+
+    if re.match(r"^(hi|hello|hey|hiya)\b", sq_nopunct) and len(sq_nopunct) <= 52:
+        return {"intent": "smalltalk_greeting", "source": "rules_smalltalk"}
+
+    if "how are you" in q or "how's it going" in q or "how is it going" in q:
+        return {"intent": "smalltalk_how_are_you", "source": "rules_smalltalk"}
+    if len(sq) < 100 and (
+        sq.startswith("thank")
+        or " thank you" in q
+        or sq == "thanks"
+        or sq.startswith("thanks ")
+    ):
+        return {"intent": "smalltalk_thanks", "source": "rules_smalltalk"}
+    if any(
+        x in sq for x in ("goodbye", "bye", "that's all", "that is all", "have a good day")
+    ):
+        return {"intent": "smalltalk_goodbye", "source": "rules_smalltalk"}
+    if "weather" in q and any(x in q for x in ("nice", "cold", "hot", "rain", "sunny", "bad")):
+        return {"intent": "smalltalk_weather", "source": "rules_smalltalk"}
+    if any(x in q for x in ("hold on", "one moment", "give me a second", "wait a moment")):
+        return {"intent": "smalltalk_wait", "source": "rules_smalltalk"}
+    return None
+
+
 def _intent_from_service(caller_input: str, caller_id: str, conversation_history: list) -> dict:
     # External intent service integration (provided by upstream system)
     if settings.intent_service_url:
@@ -285,6 +368,30 @@ def _intent_from_service(caller_input: str, caller_id: str, conversation_history
         except Exception:
             pass
 
+    st = _smalltalk_intent_quick(caller_input)
+    if st:
+        return st
+
+    q = (caller_input or "").lower()
+    if any(
+        p in q
+        for p in (
+            "live agent",
+            "human agent",
+            "real person",
+            "speak to agent",
+            "speak to an agent",
+            "talk to a person",
+            "talk to someone",
+            "representative",
+            "customer service agent",
+            "transfer me",
+            "connect me to",
+            "operator",
+        )
+    ):
+        return {"intent": "request_live_agent", "source": "rules_live_agent"}
+
     # Primary in-process classifier (OpenAI/Azure/Ollama via ai_service.py).
     # Falls through to rule-based heuristics if the model is unavailable.
     try:
@@ -295,7 +402,6 @@ def _intent_from_service(caller_input: str, caller_id: str, conversation_history
     except Exception:
         pass
 
-    q = caller_input.lower()
     sq = q.strip()
 
     # ── Scripted CSR scenarios (Cosmos templates: csr_*) — specific phrases first ──
@@ -334,27 +440,7 @@ def _intent_from_service(caller_input: str, caller_id: str, conversation_history
         or "accumulator" in q
     ):
         intent = "csr_high_deductible_accumulator"
-    # ── Small talk (short utterances) ──
-    elif len(sq) <= 48 and (
-        sq in ("hi", "hello", "hey", "good morning", "good afternoon", "good evening")
-        or sq.startswith(("hi ", "hello ", "hey "))
-    ):
-        intent = "smalltalk_greeting"
-    elif "how are you" in q or "how's it going" in q or "how is it going" in q:
-        intent = "smalltalk_how_are_you"
-    elif len(sq) < 100 and (
-        sq.startswith("thank")
-        or " thank you" in q
-        or sq == "thanks"
-        or sq.startswith("thanks ")
-    ):
-        intent = "smalltalk_thanks"
-    elif any(x in sq for x in ("goodbye", "bye", "that's all", "that is all", "have a good day")):
-        intent = "smalltalk_goodbye"
-    elif "weather" in q and any(x in q for x in ("nice", "cold", "hot", "rain", "sunny", "bad")):
-        intent = "smalltalk_weather"
-    elif any(x in q for x in ("hold on", "one moment", "give me a second", "wait a moment")):
-        intent = "smalltalk_wait"
+    # ── Small talk handled earlier via _smalltalk_intent_quick ──
     # ── Legacy RAG-friendly intents ──
     elif "hospital" in q and ("covered" in q or "network" in q):
         intent = "hospital_covered"
@@ -442,7 +528,10 @@ def build_crew_for_query(
         CrewTurnResult with ``response_text`` for TTS/summary and optional ``portal_render`` metadata.
     """
     if demo_mode:
-        return CrewTurnResult(response_text=_demo_response(caller_input, caller_id, caller_phone))
+        return CrewTurnResult(
+            response_text=_demo_response(caller_input, caller_id, caller_phone),
+            voice_id=_preferred_tts_voice_id(),
+        )
 
     member_id, email, dob = _extract_profile_fields(caller_input, conversation_history, caller_id)
     strict_sim_verify = _is_sim_caller_id(caller_id)
@@ -455,12 +544,14 @@ def build_crew_for_query(
     )
     if not verification.get("verified"):
         # Call simulator: phone comes from selected policyholder; user must type member ID + DOB.
+        _vv = _preferred_tts_voice_id()
         if _is_sim_caller_id(caller_id) and not (caller_phone or "").strip():
             return CrewTurnResult(
                 response_text=(
                     "Select a simulated caller from the dropdown so we can detect your phone number. "
                     "Then provide your member ID and date of birth in YYYY-MM-DD format."
-                )
+                ),
+                voice_id=_vv,
             )
         if _is_sim_caller_id(caller_id) and (caller_phone or "").strip():
             need: list[str] = []
@@ -473,9 +564,13 @@ def build_crew_for_query(
                     response_text=fill_template(
                         "identity_prompt",
                         missing_field=" and ".join(need),
-                    )
+                    ),
+                    voice_id=_vv,
                 )
-            return CrewTurnResult(response_text=fill_template("identity_failed"))
+            return CrewTurnResult(
+                response_text=fill_template("identity_failed"),
+                voice_id=_vv,
+            )
         if not email or not dob:
             missing = []
             if not email:
@@ -483,9 +578,13 @@ def build_crew_for_query(
             if not dob:
                 missing.append("date of birth")
             return CrewTurnResult(
-                response_text=fill_template("identity_prompt", missing_field=" and ".join(missing))
+                response_text=fill_template("identity_prompt", missing_field=" and ".join(missing)),
+                voice_id=_vv,
             )
-        return CrewTurnResult(response_text=fill_template("identity_failed"))
+        return CrewTurnResult(
+            response_text=fill_template("identity_failed"),
+            voice_id=_vv,
+        )
 
     if _is_identity_only_utterance(caller_input):
         name = verification.get("member_name", "there")
@@ -493,7 +592,8 @@ def build_crew_for_query(
             response_text=(
                 f"Thanks {name}, your identity is verified. "
                 "How can I help with your policy today?"
-            )
+            ),
+            voice_id=_preferred_tts_voice_id(),
         )
 
     intent_payload = _intent_from_service(caller_input, verification.get("policy_id", caller_id), conversation_history)
@@ -504,4 +604,9 @@ def build_crew_for_query(
     rag_values.setdefault("remaining_limit", verification.get("claims_remaining", "€0"))
 
     rendered = render_portal_response(intent, rag_values)
-    return CrewTurnResult(response_text=rendered.rendered_text, portal_render=rendered)
+    suggest_live = intent in ("fallback_human", "request_live_agent")
+    return CrewTurnResult(
+        response_text=rendered.rendered_text,
+        portal_render=rendered,
+        suggest_live_agent=suggest_live,
+    )

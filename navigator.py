@@ -137,8 +137,11 @@ class InsuranceVoiceNavigator:
             final_response = turn.response_text if hasattr(turn, "response_text") else str(turn)
             self._add_to_history("assistant", final_response)
  
-            # Use specific voice_id from portal render if available
-            vid = turn.portal_render.voice_id if (hasattr(turn, "portal_render") and turn.portal_render) else None
+            vid = None
+            if hasattr(turn, "portal_render") and turn.portal_render:
+                vid = turn.portal_render.voice_id
+            if not vid and hasattr(turn, "voice_id"):
+                vid = turn.voice_id
             await stream_tts_to_call(
                 final_response, websocket, voice_id=vid, lang_code=self._detected_lang
             )

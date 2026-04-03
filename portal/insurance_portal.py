@@ -78,6 +78,10 @@ DEFAULT_INSURANCE_TEMPLATES: dict[str, InsuranceTemplate] = {
         intent="fallback_human",
         template="I wasn't able to find a clear answer for your query. Let me transfer you to a specialist right away.",
     ),
+    "request_live_agent": InsuranceTemplate(
+        intent="request_live_agent",
+        template="I'm connecting you with a live specialist now. They can see this conversation on the portal so you won't need to repeat everything.",
+    ),
 }
 
 
@@ -168,9 +172,20 @@ class InsurancePortal:
             self._last_init_error = str(e)
             logger.warning("insurance_portal_cosmos_init_failed", error=str(e))
 
+    def _overlay_smalltalk_from_seed(self) -> None:
+        """Prefer bundled small-talk strings (e.g. AILVN branding) over stale Cosmos copies."""
+        for t in _templates_from_json_seed():
+            if str(t.intent).startswith("smalltalk_"):
+                self._cache[t.intent] = t
+
     def _load_templates(self):
         self._cache = dict(DEFAULT_INSURANCE_TEMPLATES)
+        # CSR + small-talk from JSON seed (Cosmos upserts the same rows when DB is empty).
+        # Without Cosmos, these intents were missing and smalltalk_* fell through to fallback_human.
+        for t in _templates_from_json_seed():
+            self._cache.setdefault(t.intent, t)
         if not self._container:
+            self._overlay_smalltalk_from_seed()
             return
         try:
             items = list(self._container.read_all_items())
@@ -199,6 +214,9 @@ class InsurancePortal:
         except Exception as e:
             logger.warning("insurance_portal_cosmos_load_failed", error=str(e))
             self._cache = dict(DEFAULT_INSURANCE_TEMPLATES)
+            for t in _templates_from_json_seed():
+                self._cache.setdefault(t.intent, t)
+        self._overlay_smalltalk_from_seed()
 
     def cosmos_diagnostics(self, include_env_name_list: bool = False) -> dict:
         """For /portal/v1/cosmos-status — explains why Data Explorer may look empty."""

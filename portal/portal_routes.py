@@ -7,11 +7,18 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from portal.insurance_portal import get_insurance_portal
 from portal.portal_render import extract_rag_slots, render_portal_response
+from services.live_agent_queue import (
+    claim_handoff,
+    create_handoff,
+    get_handoff,
+    list_handoffs,
+    resolve_handoff,
+)
 
 portal_router = APIRouter(prefix="/portal/v1", tags=["Response Portal"])
 
@@ -175,10 +182,78 @@ async def portal_create_template(body: TemplateCreateBody):
     return {"status": "created", "intent": key}
 
 
+class LiveAgentHandoffCreate(BaseModel):
+    conversation_history: list[dict] = Field(default_factory=list)
+    caller_phone: str = ""
+    simulated_member_id: str = ""
+    verified: bool = False
+    portal_intent: Optional[str] = None
+    reason: str = "user_requested"
+    source: str = "simulator"
+
+
+@portal_router.post("/live-agent/handoffs")
+async def portal_create_live_handoff(body: LiveAgentHandoffCreate):
+    """
+    Queue a session for a live agent. Call from the simulator (or telephony bridge later).
+    Agents open context from GET /live-agent/handoffs/{id}.
+    """
+    rec = create_handoff(
+        conversation_history=body.conversation_history,
+        caller_phone=body.caller_phone,
+        simulated_member_id=body.simulated_member_id,
+        verified=body.verified,
+        portal_intent=body.portal_intent,
+        reason=body.reason,
+        source=body.source,
+    )
+    return {"status": "queued", "handoff": rec}
+
+
+@portal_router.get("/live-agent/handoffs")
+async def portal_list_live_handoffs(
+    status: Optional[str] = Query(
+        None,
+        description="Filter: pending | claimed | resolved (omit for all)",
+    ),
+):
+    return {"handoffs": list_handoffs(status=status)}
+
+
+@portal_router.get("/live-agent/handoffs/{handoff_id}")
+async def portal_get_live_handoff(handoff_id: str):
+    rec = get_handoff(handoff_id.strip())
+    if not rec:
+        raise HTTPException(status_code=404, detail="Handoff not found")
+    return rec
+
+
+@portal_router.post("/live-agent/handoffs/{handoff_id}/claim")
+async def portal_claim_live_handoff(
+    handoff_id: str,
+    body: dict = Body(default_factory=dict),
+):
+    agent_name = (body or {}).get("agent_name") or "Agent"
+    rec = claim_handoff(handoff_id.strip(), str(agent_name))
+    if not rec:
+        raise HTTPException(
+            status_code=400,
+            detail="Handoff not found or not pending",
+        )
+    return {"status": "claimed", "handoff": rec}
+
+
+@portal_router.post("/live-agent/handoffs/{handoff_id}/resolve")
+async def portal_resolve_live_handoff(handoff_id: str):
+    if not resolve_handoff(handoff_id.strip()):
+        raise HTTPException(status_code=404, detail="Handoff not found")
+    return {"status": "resolved", "id": handoff_id.strip()}
+
+
 @portal_router.delete("/templates/{intent}")
 async def portal_delete_template(intent: str):
     key = intent.strip()
-    if key in ("fallback_human",):
+    if key in ("fallback_human", "request_live_agent"):
         raise HTTPException(status_code=400, detail="Cannot delete protected intent")
     portal = get_insurance_portal()
     portal.delete_template(key)

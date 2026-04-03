@@ -91,10 +91,10 @@ class TTSService:
             text=text,
             model_id=settings.elevenlabs_model_id,
             voice_settings=VoiceSettings(
-                stability=0.42,           # Natural variability
-                similarity_boost=0.80,    # True to the persona
-                style=0.40,               # Warmth & expressiveness
-                use_speaker_boost=True,   # Clarity on phone audio
+                stability=0.36,
+                similarity_boost=0.76,
+                style=0.52,
+                use_speaker_boost=True,
             ),
             output_format="mp3_44100_128",
         )
@@ -129,10 +129,10 @@ class TTSService:
         )
         ssml = f"""<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis"
                xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="{lang_code}">
-  <voice name="en-US-JennyNeural">
-    <mstts:express-as style="customerservice" styledegree="1.5">
-      <prosody rate="95%" pitch="-1%">
-        <break time="200ms"/>{safe_text}<break time="150ms"/>
+  <voice name="en-US-AvaNeural">
+    <mstts:express-as style="friendly" styledegree="1.2">
+      <prosody rate="100%" pitch="+2%">
+        <break time="90ms"/>{safe_text}<break time="90ms"/>
       </prosody>
     </mstts:express-as>
   </voice>
@@ -165,15 +165,23 @@ class TTSService:
             return
  
         from elevenlabs.client import ElevenLabs
+        from elevenlabs import VoiceSettings
  
         client = ElevenLabs(api_key=settings.elevenlabs_api_key)
         voice_id = voice_id or settings.elevenlabs_voice_id
+        vset = VoiceSettings(
+            stability=0.36,
+            similarity_boost=0.76,
+            style=0.52,
+            use_speaker_boost=True,
+        )
  
         # ElevenLabs streaming
         audio_stream = client.text_to_speech.convert_as_stream(
             voice_id=voice_id,
             text=text,
             model_id=settings.elevenlabs_model_id,
+            voice_settings=vset,
             output_format="mp3_44100_128",
         )
  

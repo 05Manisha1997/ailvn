@@ -26,10 +26,10 @@ except ImportError:
 # ── Empathetic voice parameters ───────────────────────────────────────────────
 # These are tuned to sound warm, caring, and human — not robotic or corporate.
 EMPATHY_VOICE_SETTINGS = {
-    "stability": 0.42,           # Slight variability → avoids flat monotone
-    "similarity_boost": 0.80,    # Stays true to the voice persona
-    "style": 0.40,               # Adds emotional expressiveness
-    "use_speaker_boost": True,   # Enhances clarity on phone audio
+    "stability": 0.36,
+    "similarity_boost": 0.76,
+    "style": 0.52,
+    "use_speaker_boost": True,
 }
  
 # Initialize the async ElevenLabs client once
@@ -46,7 +46,7 @@ def _build_ssml(text: str, lang_code: str = "en-US") -> str:
     - Prosody rate "95%" → slightly slower = easier to follow on a phone call
     - Voice: en-US-JennyNeural (warm, empathetic insurance/support voice)
     """
-    voice_name = "en-US-JennyNeural"
+    voice_name = "en-US-AvaNeural"
  
     # Escape any bare XML-unsafe chars in the text
     safe_text = (
@@ -59,11 +59,11 @@ def _build_ssml(text: str, lang_code: str = "en-US") -> str:
     return f"""<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis"
                xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="{lang_code}">
   <voice name="{voice_name}">
-    <mstts:express-as style="customerservice" styledegree="1.5">
-      <prosody rate="95%" pitch="-1%">
-        <break time="250ms"/>
+    <mstts:express-as style="friendly" styledegree="1.2">
+      <prosody rate="100%" pitch="+2%">
+        <break time="90ms"/>
         {safe_text}
-        <break time="150ms"/>
+        <break time="90ms"/>
       </prosody>
     </mstts:express-as>
   </voice>
@@ -125,12 +125,17 @@ async def stream_tts_to_call(
     if elevenlabs_client:
         try:
             vid = voice_id or settings.elevenlabs_voice_id
+            _el_vs = (
+                VoiceSettings(**EMPATHY_VOICE_SETTINGS)
+                if VoiceSettings is not None
+                else EMPATHY_VOICE_SETTINGS
+            )
             audio_stream = elevenlabs_client.text_to_speech.convert_as_stream(
                 voice_id=vid,
                 text=text,
-                model_id="eleven_turbo_v2",   # Lowest latency model
-                output_format="pcm_16000",     # Direct PCM for ACS WebSocket
-                voice_settings=EMPATHY_VOICE_SETTINGS,
+                model_id=settings.elevenlabs_model_id,
+                output_format="pcm_16000",
+                voice_settings=_el_vs,
             )
             async for chunk in audio_stream:
                 if chunk:
@@ -169,12 +174,17 @@ async def synthesize_to_bytes(
     if elevenlabs_client:
         try:
             vid = voice_id or settings.elevenlabs_voice_id
+            _el_vs = (
+                VoiceSettings(**EMPATHY_VOICE_SETTINGS)
+                if VoiceSettings is not None
+                else EMPATHY_VOICE_SETTINGS
+            )
             generator = elevenlabs_client.text_to_speech.convert(
                 voice_id=vid,
                 text=text,
-                model_id="eleven_turbo_v2",
+                model_id=settings.elevenlabs_model_id,
                 output_format="mp3_44100_128",
-                voice_settings=EMPATHY_VOICE_SETTINGS,
+                voice_settings=_el_vs,
             )
             chunks = []
             async for chunk in generator:

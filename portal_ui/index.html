@@ -296,75 +296,148 @@ function TemplatesPage() {
 }
 
 function LiveCallsPage() {
-  const [calls] = useState(MOCK_CALLS.filter(c => !c.ended_at));
-  const [selected, setSelected] = useState(null);
+  const [handoffs, setHandoffs] = useState([]);
+  const [loadErr, setLoadErr] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
-  const activeCalls = calls;
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`${API}/live-agent/handoffs`);
+      if (!r.ok) throw new Error(await r.text());
+      const data = await r.json();
+      setHandoffs(data.handoffs || []);
+      setLoadErr(null);
+    } catch (e) {
+      setLoadErr(e.message || String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  const openDetail = async (id) => {
+    setDetailLoading(true);
+    setDetail(null);
+    try {
+      const r = await fetch(`${API}/live-agent/handoffs/${id}`);
+      if (!r.ok) throw new Error(await r.text());
+      setDetail(await r.json());
+    } catch (e) {
+      alert(e.message || String(e));
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const doClaim = async (id) => {
+    const name = window.prompt('Your name (shown to team)', 'Agent') || 'Agent';
+    try {
+      const r = await fetch(`${API}/live-agent/handoffs/${id}/claim`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_name: name }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      await load();
+      openDetail(id);
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  };
+
+  const doResolve = async (id) => {
+    try {
+      const r = await fetch(`${API}/live-agent/handoffs/${id}/resolve`, { method: 'POST' });
+      if (!r.ok) throw new Error(await r.text());
+      setDetail(null);
+      await load();
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  };
+
+  const pending = handoffs.filter(h => h.status === 'pending');
+  const claimed = handoffs.filter(h => h.status === 'claimed');
 
   return (
     <div>
-      <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:20 }}>
-        <div style={{ width:8, height:8, borderRadius:'50%', background:'#34D399',
-          boxShadow:'0 0 8px #34D399' }} />
-        <span style={{ fontSize:13, color:'#34D399', fontWeight:700 }}>
-          {activeCalls.length} Active Call{activeCalls.length !== 1 ? 's' : ''}
-        </span>
-        <span style={{ color:'#475569', fontSize:12 }}>Auto-refreshing every 5s</span>
+      <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:16, flexWrap:'wrap' }}>
+        <div style={{ width:8, height:8, borderRadius:'50%', background:'#FCD34D',
+          boxShadow:'0 0 8px #FCD34D' }} />
+        <span style={{ fontSize:13, color:'#FCD34D', fontWeight:700 }}>Live agent queue</span>
+        <span style={{ color:'#475569', fontSize:12 }}>Refreshes every 5s · Escalations from Call Simulator</span>
+        <Btn small outline onClick={load}>Refresh</Btn>
+      </div>
+      {loadErr && (
+        <Card style={{ marginBottom:12, borderColor:'#F87171' }}>
+          <div style={{ color:'#F87171', fontSize:13 }}>Could not load queue: {loadErr}</div>
+        </Card>
+      )}
+
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:20 }}>
+        <Card>
+          <div style={{ fontSize:12, fontWeight:700, color:'#94A3B8', marginBottom:10 }}>Pending ({pending.length})</div>
+          {!pending.length && <div style={{ color:'#475569', fontSize:13 }}>No one waiting for an agent.</div>}
+          {pending.map(h => (
+            <div key={h.id} style={{ borderTop:'1px solid #334155', paddingTop:10, marginTop:10 }}>
+              <div style={{ fontSize:12, color:'#64748B' }}>{new Date(h.created_at).toLocaleString()}</div>
+              <div style={{ fontWeight:600, marginTop:4 }}>{h.caller_phone || '—'} · {h.simulated_member_id || '—'}</div>
+              <div style={{ fontSize:12, marginTop:4 }}>Intent: <code style={{ color:'#38BDF8' }}>{h.portal_intent || '—'}</code> · verified: {h.verified ? 'yes' : 'no'}</div>
+              <div style={{ fontSize:12, color:'#94A3B8', marginTop:6, whiteSpace:'pre-wrap' }}>{h.preview}</div>
+              <div style={{ marginTop:8, display:'flex', gap:8 }}>
+                <Btn small onClick={() => openDetail(h.id)}>View context</Btn>
+                <Btn small outline color='#34D399' onClick={() => doClaim(h.id)}>Claim</Btn>
+              </div>
+            </div>
+          ))}
+        </Card>
+        <Card>
+          <div style={{ fontSize:12, fontWeight:700, color:'#94A3B8', marginBottom:10 }}>Claimed ({claimed.length})</div>
+          {!claimed.length && <div style={{ color:'#475569', fontSize:13 }}>No active claims.</div>}
+          {claimed.map(h => (
+            <div key={h.id} style={{ borderTop:'1px solid #334155', paddingTop:10, marginTop:10 }}>
+              <div style={{ fontSize:12 }}><strong>{h.claimed_by}</strong> · {h.claimed_at && new Date(h.claimed_at).toLocaleString()}</div>
+              <div style={{ fontSize:12, marginTop:4 }}>{h.caller_phone} · {h.simulated_member_id}</div>
+              <div style={{ marginTop:8, display:'flex', gap:8 }}>
+                <Btn small onClick={() => openDetail(h.id)}>View context</Btn>
+                <Btn small outline color='#A78BFA' onClick={() => doResolve(h.id)}>Resolve</Btn>
+              </div>
+            </div>
+          ))}
+        </Card>
       </div>
 
-      {activeCalls.length === 0
-        ? <Card><div style={{ textAlign:'center', padding:40, color:'#475569' }}>
-            No active calls right now.
-          </div></Card>
-        : activeCalls.map(call => (
-          <Card key={call.call_id} style={{ marginBottom:12,
-            border: selected === call.call_id ? '1px solid #38BDF8' : '1px solid #334155',
-            cursor:'pointer' }}
-            onClick={() => setSelected(selected === call.call_id ? null : call.call_id)}>
-            <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-              <div style={{ width:36, height:36, borderRadius:'50%', background:'#1E3A5F',
-                display:'flex', alignItems:'center', justifyContent:'center',
-                fontSize:14, fontWeight:700, color:'#38BDF8' }}>
-                {(call.caller_name || 'U')[0]}
-              </div>
-              <div style={{ flex:1 }}>
-                <div style={{ fontWeight:700, fontSize:14 }}>
-                  {call.caller_name || 'Unknown Caller'}
-                  {call.is_verified && <span style={{ marginLeft:8, fontSize:10,
-                    color:'#34D399' }}>✓ Verified</span>}
-                </div>
-                <div style={{ fontSize:12, color:'#64748B' }}>{call.caller_phone}</div>
-              </div>
-              <div style={{ textAlign:'right' }}>
-                {call.current_intent &&
-                  <Badge label={call.current_intent} color={INTENT_COLORS[call.current_intent] || '#64748B'} />}
-                <div style={{ fontSize:11, color:'#475569', marginTop:4 }}>
-                  {call.turn_count} turns
-                </div>
-              </div>
-              <Btn color='#F87171' small outline>Transfer to Agent</Btn>
-            </div>
-
-            {selected === call.call_id && (
-              <div style={{ marginTop:14, paddingTop:14, borderTop:'1px solid #334155' }}>
-                <div style={{ fontSize:11, color:'#64748B', marginBottom:8 }}>Intent Journey</div>
-                <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                  {call.intent_history.map((intent, i) => (
-                    <div key={i} style={{ display:'flex', alignItems:'center', gap:4 }}>
-                      {i > 0 && <span style={{ color:'#475569' }}>→</span>}
-                      <Badge label={intent} color={INTENT_COLORS[intent] || '#64748B'} />
-                    </div>
-                  ))}
-                </div>
-                <div style={{ marginTop:12, display:'flex', gap:8 }}>
-                  <Btn color='#38BDF8' small>View Full Context</Btn>
-                  <Btn color='#A78BFA' small outline>View Documents</Btn>
-                </div>
-              </div>
+      {detailLoading && <Card><div style={{ color:'#94A3B8' }}>Loading context…</div></Card>}
+      {detail && !detailLoading && (
+        <Card>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+            <div style={{ fontWeight:700 }}>Handoff context</div>
+            <Btn small outline onClick={() => setDetail(null)}>Close</Btn>
+          </div>
+          <pre style={{
+            whiteSpace:'pre-wrap', fontSize:12, background:'#0F172A', padding:14, borderRadius:8,
+            border:'1px solid #334155', maxHeight:320, overflow:'auto', color:'#E2E8F0',
+            fontFamily:'ui-monospace, monospace',
+          }}>{detail.issue_summary || ''}</pre>
+          <div style={{ marginTop:12, fontSize:11, color:'#64748B' }}>Raw transcript (JSON)</div>
+          <pre style={{
+            whiteSpace:'pre-wrap', fontSize:11, background:'#0F172A', padding:12, borderRadius:8,
+            border:'1px solid #334155', maxHeight:240, overflow:'auto', color:'#94A3B8',
+          }}>{JSON.stringify(detail.conversation_history || [], null, 2)}</pre>
+          <div style={{ marginTop:12, display:'flex', gap:8 }}>
+            {detail.status === 'pending' && (
+              <Btn small color='#34D399' onClick={() => doClaim(detail.id)}>Claim this</Btn>
             )}
-          </Card>
-        ))
-      }
+            {detail.status === 'claimed' && (
+              <Btn small outline color='#A78BFA' onClick={() => doResolve(detail.id)}>Mark resolved</Btn>
+            )}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
@@ -559,7 +632,7 @@ function App() {
         </div>
         <div style={{ color:'#475569', fontSize:13, marginBottom:24 }}>
           {page === 'templates' && 'Configure intent mappings, response templates, and sub-routing logic.'}
-          {page === 'live' && 'Monitor active calls in real-time. Transfer to live agents if needed.'}
+          {page === 'live' && 'Live agent queue: pending escalations from the Call Simulator (full transcript + issue summary). Claim, then resolve when done.'}
           {page === 'history' && 'Review completed calls, intent journeys, and summaries.'}
           {page === 'analytics' && 'Operational analytics for calls and AI performance.'}
           {page === 'policies' && 'Policyholder directory and plan snapshot.'}

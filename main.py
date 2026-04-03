@@ -73,6 +73,7 @@ async def root():
         "dashboard": "/app",
         "response_portal_ui": "/portal",
         "response_portal_api": "/portal/v1",
+        "live_agent_handoffs": "/portal/v1/live-agent/handoffs",
         "docs": "/docs",
     }
 

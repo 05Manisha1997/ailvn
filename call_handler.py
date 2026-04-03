@@ -56,6 +56,7 @@ class SimulateResponse(BaseModel):
     voice_id: Optional[str] = None
     portal_intent: Optional[str] = None
     portal_slots_filled: Optional[dict] = None
+    suggest_live_agent: bool = False
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -152,7 +153,7 @@ async def simulate_call_turn(body: SimulateRequest):
     final_response = turn.response_text
 
     pr = turn.portal_render
-    voice_id = pr.voice_id if pr else None
+    voice_id = (pr.voice_id if pr else None) or turn.voice_id
     portal_intent = pr.intent if pr else None
     portal_slots = dict(pr.slots_filled) if pr else None
 
@@ -171,6 +172,7 @@ async def simulate_call_turn(body: SimulateRequest):
         voice_id=voice_id,
         portal_intent=portal_intent,
         portal_slots_filled=portal_slots,
+        suggest_live_agent=bool(getattr(turn, "suggest_live_agent", False)),
     )
 
 

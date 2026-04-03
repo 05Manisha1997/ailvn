@@ -22,6 +22,9 @@ let talkCommitTimer = null;
 let activeSimAbortController = null;
 let activeTtsAbortController = null;
 let stopGenerationToken = 0;
+/** Last /simulate portal_intent (for live-agent handoff summary). */
+let lastPortalIntent = null;
+
 const STOP_ICON = `
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2">
     <rect x="6" y="6" width="12" height="12" rx="2" ry="2"></rect>
@@ -54,9 +57,9 @@ function setSendButtonLoading(isLoading) {
 function finishTTSCycle() {
   ttsAudioPlaying = false;
   currentTtsAudio = null;
-  listenBlockedUntil = Date.now() + 1200;
+  listenBlockedUntil = Date.now() + 380;
   updateMicButtonUI();
-  if (talkModeActive) requestTalkModeListening(350);
+  if (talkModeActive) requestTalkModeListening(60);
 }
 
 function updateMicButtonUI() {
@@ -188,17 +191,64 @@ function normalizeSpeech(text) {
   return (text || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function digitCount(text) {
+  return ((text || '').match(/\d/g) || []).length;
+}
+
+/** Utterances that carry member id / DOB — never drop as noise or echo heuristics. */
+function isVerificationLikeText(text) {
+  const t = text || '';
+  if (digitCount(t) >= 4) return true;
+  if (/\bpol\b|p\s*o\s*l|policy|member|birth|dob|date\s+of/i.test(t)) return true;
+  return false;
+}
+
+/** Greetings / thanks — Web Speech often assigns low confidence; do not drop. */
+function isCommonTalkPhraseWhitelisted(text) {
+  const t = normalizeSpeech(text);
+  if (!t || t.length > 96) return false;
+  if (/^(hi|hello|hey|hiya|yo)\b/.test(t)) return true;
+  if (/^(good morning|good afternoon|good evening|good day|greetings)\b/.test(t)) return true;
+  if (/^(thanks|thank you|thankyou|bye|goodbye|cheers)\b/.test(t)) return true;
+  if (/^how are you\b/.test(t)) return true;
+  return false;
+}
+
+/**
+ * Chrome exposes confidence 0–1 on alternatives; other browsers may omit it (null = don't gate).
+ * Very low confidence on short non-numeric phrases is usually room noise / TV / other speakers.
+ */
+function shouldRejectDistantOrNoise(transcript, minConfidence) {
+  if (minConfidence === null || minConfidence === undefined) return false;
+  // Chromium may report 0 when confidence is unavailable; never drop on that.
+  if (minConfidence <= 0) return false;
+  const t = normalizeSpeech(transcript);
+  if (isVerificationLikeText(transcript)) return false;
+  if (isCommonTalkPhraseWhitelisted(transcript)) return false;
+  if (t.length < 36) {
+    if (minConfidence < 0.3) return true;
+    if (minConfidence < 0.45 && digitCount(transcript) < 2) return true;
+  }
+  return false;
+}
+
 function isLikelyNoise(transcript) {
+  if (isVerificationLikeText(transcript)) return false;
+  if (isCommonTalkPhraseWhitelisted(transcript)) return false;
   const t = normalizeSpeech(transcript);
   if (!t) return true;
   if (t.length < 3) return true;
   const tokens = t.split(' ').filter(Boolean);
   if (tokens.length === 1 && tokens[0].length <= 2) return true;
   const filler = new Set(['uh', 'um', 'hmm', 'mm', 'ah', 'eh', 'noise', 'static']);
-  return tokens.every(tok => filler.has(tok));
+  if (tokens.every(tok => filler.has(tok))) return true;
+  // Tiny single-token blurts only — do not drop real answers like "deductible" or "claims".
+  if (tokens.length === 1 && tokens[0].length <= 4 && digitCount(transcript) === 0) return true;
+  return false;
 }
 
 function likelyAssistantEcho(transcript) {
+  if (isVerificationLikeText(transcript)) return false;
   const heard = normalizeSpeech(transcript);
   const spoken = normalizeSpeech(lastAssistantText);
   if (!heard || !spoken) return false;
@@ -206,13 +256,32 @@ function likelyAssistantEcho(transcript) {
   if (spoken.includes(heard) || heard.includes(spoken.slice(0, Math.min(heard.length, spoken.length)))) {
     return true;
   }
+  // Avoid flagging short user replies that share generic words with the assistant ("your", "member", …).
+  if (heard.length < 28) return false;
   const heardTokens = new Set(heard.split(' ').filter(Boolean));
   const spokenTokens = spoken.split(' ').filter(Boolean);
+  if (spokenTokens.length < 6) return false;
   let overlap = 0;
   for (const tok of spokenTokens) {
     if (heardTokens.has(tok)) overlap += 1;
   }
-  return spokenTokens.length > 0 && (overlap / spokenTokens.length) > 0.7;
+  return (overlap / spokenTokens.length) > 0.82;
+}
+
+/** Longer pause when caller may still be adding DOB after member id. */
+function talkCommitDelayMs(buffer) {
+  const b = (buffer || '').trim();
+  const hasYear = /\b(19|20)\d{2}\b/.test(b);
+  const hasPol = /\bpol\b|p\s*o\s*l|policy\s*number|member\s*id/i.test(b);
+  if (hasPol && !hasYear) return 2800;
+  if (isCommonTalkPhraseWhitelisted(b) && b.length < 48) return 950;
+  return 1700;
+}
+
+function scheduleTalkCommit() {
+  if (!talkModeActive) return;
+  if (talkCommitTimer) clearTimeout(talkCommitTimer);
+  talkCommitTimer = setTimeout(commitTalkSpeechBuffer, talkCommitDelayMs(talkSpeechBuffer));
 }
 
 function requestTalkModeListening(delayMs = 0) {
@@ -220,6 +289,11 @@ function requestTalkModeListening(delayMs = 0) {
   setTimeout(() => {
     if (!talkModeActive) return;
     if (Date.now() < listenBlockedUntil) {
+      requestTalkModeListening(200);
+      return;
+    }
+    // After a reply, TTS may still be marked active briefly — retry instead of giving up once.
+    if (simIsLoading || ttsAudioPlaying) {
       requestTalkModeListening(200);
       return;
     }
@@ -375,6 +449,55 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+function inferVerifiedFromHistory(hist) {
+  if (!Array.isArray(hist)) return false;
+  return hist.some(
+    (m) =>
+      m &&
+      m.role === 'assistant' &&
+      /identity is verified|your identity is verified/i.test(String(m.content || ''))
+  );
+}
+
+/**
+ * Push current simulator transcript to the portal live-agent queue with full context.
+ * Agents open /portal → Live agent queue → View context.
+ */
+async function submitLiveAgentHandoff(reason) {
+  const sel = document.getElementById('sim-policy-select');
+  const opt = sel && sel.selectedOptions[0];
+  const simPhone = opt && opt.dataset.phone ? opt.dataset.phone : '';
+  const memberId = opt && opt.value ? opt.value : '';
+  if (!memberId || !simPhone) {
+    showToast('Select a policyholder first.', 'error');
+    return null;
+  }
+  const verified = inferVerifiedFromHistory(simConversationHistory);
+  try {
+    const r = await fetch(`${API_BASE}/portal/v1/live-agent/handoffs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conversation_history: simConversationHistory,
+        caller_phone: simPhone,
+        simulated_member_id: memberId,
+        verified,
+        portal_intent: lastPortalIntent,
+        reason: reason || 'user_requested',
+        source: 'simulator',
+      }),
+    });
+    if (r.ok) {
+      showToast('Sent to live agent queue — open /portal (Live Calls) for full context.', 'info');
+      return await r.json();
+    }
+    showToast(`Live agent queue failed (${r.status})`, 'error');
+  } catch (e) {
+    showToast('Live agent queue failed.', 'error');
+  }
+  return null;
+}
+
 async function sendMessage(forcedText = null) {
   if (simIsLoading) {
     const queued = (forcedText || '').trim();
@@ -429,10 +552,17 @@ async function sendMessage(forcedText = null) {
       appendMessage('assistant', result.agent_response);
       lastAssistantText = result.agent_response || '';
       simConversationHistory = result.conversation_history || [];
+      lastPortalIntent = result.portal_intent || null;
 
       // Show elapsed time as subtle toast
       if (result.elapsed_ms) {
         showToast(`⚡ Response in ${result.elapsed_ms}ms`, 'info');
+      }
+
+      if (result.portal_intent === 'request_live_agent') {
+        submitLiveAgentHandoff('explicit_intent');
+      } else if (result.suggest_live_agent) {
+        showToast('For a human: click Live agent in the chat header to send this thread to the portal.', 'info');
       }
 
       // Play the TTS audio response (optional per-intent voice from portal)
@@ -461,7 +591,7 @@ async function sendMessage(forcedText = null) {
     }
   }
   if (talkModeActive) {
-    requestTalkModeListening(450);
+    requestTalkModeListening(120);
   }
 }
 
@@ -483,32 +613,48 @@ function initSpeechRecognition() {
   recognition.onresult = (event) => {
     let finalTranscript = '';
     let interimTranscript = '';
+    let minConfidence = null;
     for (let i = event.resultIndex; i < event.results.length; ++i) {
+      const alt = event.results[i][0];
       if (event.results[i].isFinal) {
-        finalTranscript += event.results[i][0].transcript;
+        finalTranscript += alt.transcript;
+        const c = alt.confidence;
+        if (typeof c === 'number' && !Number.isNaN(c)) {
+          minConfidence = minConfidence === null ? c : Math.min(minConfidence, c);
+        }
       } else {
-        interimTranscript += event.results[i][0].transcript;
+        interimTranscript += alt.transcript;
       }
     }
 
     const input = document.getElementById('sim-input');
+    if (talkModeActive && (simIsLoading || ttsAudioPlaying)) {
+      if (interimTranscript) input.value = interimTranscript;
+      return;
+    }
+
+    // Still speaking (interim text) — slide the silence window so we don't cut off mid–member ID + DOB.
+    if (talkModeActive && interimTranscript.trim()) {
+      input.value = `${talkSpeechBuffer} ${interimTranscript}`.trim();
+      scheduleTalkCommit();
+    } else if (!finalTranscript) {
+      input.value = interimTranscript;
+    }
+
     if (finalTranscript) {
       const normalized = finalTranscript.trim();
       if (!normalized) return;
+      if (shouldRejectDistantOrNoise(normalized, minConfidence)) return;
       if (isLikelyNoise(normalized)) return;
       if (talkModeActive) {
         if (likelyAssistantEcho(normalized)) return;
         talkSpeechBuffer = `${talkSpeechBuffer} ${normalized}`.trim();
-        if (talkCommitTimer) clearTimeout(talkCommitTimer);
-        // Wait briefly for the caller to finish speaking before sending.
-        talkCommitTimer = setTimeout(commitTalkSpeechBuffer, 1200);
+        scheduleTalkCommit();
       } else {
         input.value = normalized;
         // Auto send when finishing speech
         setTimeout(sendMessage, 500);
       }
-    } else {
-      input.value = interimTranscript;
     }
   };
 
@@ -556,8 +702,16 @@ function toggleRecording() {
 }
 
 function startTalkModeListening() {
-  if (!talkModeActive || simIsLoading || isRecording || ttsAudioPlaying) return;
-  if (Date.now() < listenBlockedUntil) return;
+  if (!talkModeActive) return;
+  if (simIsLoading || ttsAudioPlaying) {
+    requestTalkModeListening(200);
+    return;
+  }
+  if (Date.now() < listenBlockedUntil) {
+    requestTalkModeListening(200);
+    return;
+  }
+  if (isRecording) return;
   if (!recognition && !initSpeechRecognition()) return;
   try {
     recognition.start();
@@ -565,7 +719,7 @@ function startTalkModeListening() {
     document.getElementById('sim-input').placeholder = "Talk mode listening...";
     updateMicButtonUI();
   } catch (e) {
-    // ignore repeated start errors
+    requestTalkModeListening(400);
   }
 }
 
@@ -589,7 +743,7 @@ async function playTTS(text, voiceId) {
     // Prevent assistant voice from being captured as next user input.
     if (isRecording) stopRecording();
     ttsAudioPlaying = true;
-    listenBlockedUntil = Date.now() + 15000;
+    listenBlockedUntil = Date.now() + 6000;
     updateMicButtonUI();
 
     activeTtsAbortController = new AbortController();
@@ -639,13 +793,17 @@ function fallbackBrowserTTS(text) {
     updateMicButtonUI();
     const utterance = new SpeechSynthesisUtterance(text);
 
-    // Try to pick a decent female voice if available
     const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(v => v.name.includes('Google UK English Female') || v.name.includes('Samantha'));
+    const preferred = voices.find(
+      (v) =>
+        /Microsoft .*Natasha|Microsoft .*Jenny|Google UK English Female|Samantha|Karen/i.test(
+          v.name
+        )
+    );
     if (preferred) utterance.voice = preferred;
 
-    utterance.rate = 1.05;
-    utterance.pitch = 1.0;
+    utterance.rate = 0.98;
+    utterance.pitch = 1.04;
     utterance.onend = finishTTSCycle;
     utterance.onerror = finishTTSCycle;
     window.speechSynthesis.speak(utterance);
@@ -657,6 +815,7 @@ function fallbackBrowserTTS(text) {
 
 function clearSimulation() {
   hardStopAll('');
+  lastPortalIntent = null;
   simConversationHistory = [];
   talkModeQueue = [];
   talkSpeechBuffer = '';
