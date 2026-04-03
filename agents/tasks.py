@@ -13,7 +13,7 @@ from typing import Optional
 
 from config import settings
 from ai_service import classify_intent_with_retry, map_llm_intent_to_insurance_template
-from templates.response_templates import TEMPLATES, fill_template
+from templates.response_templates import TEMPLATES, _load_templates, fill_template
 from tools.identity_tool import _verify_identity_logic
 from rag.db_retriever import get_member_data
 from rag.policy_retriever import retrieve_policy_clauses
@@ -29,8 +29,10 @@ class CrewTurnResult:
     portal_render: Optional[PortalRenderResult] = None
     # When portal_render is None (verification prompts, etc.), use this for /tts so voice matches post-verify.
     voice_id: Optional[str] = None
-    # True when client should queue or offer live-agent handoff (portal dashboard).
+    # True when the caller explicitly asked for a human (immediate handoff path).
     suggest_live_agent: bool = False
+    # True when the AI could not answer clearly; client should offer transfer (Yes/No) before queuing.
+    offer_human_transfer: bool = False
 
 
 def _preferred_tts_voice_id() -> Optional[str]:
@@ -56,6 +58,8 @@ def _preferred_tts_voice_id() -> Optional[str]:
 
 def _demo_response(caller_input: str, member_id: str, caller_phone: str) -> str:
     """Fast demo path — keyword-matched response, no API calls."""
+    if not TEMPLATES:
+        _load_templates()
 
     # ── Smarter Heuristics for Demo ──────────────────────────────────────────
     # Extract Email
@@ -528,9 +532,12 @@ def build_crew_for_query(
         CrewTurnResult with ``response_text`` for TTS/summary and optional ``portal_render`` metadata.
     """
     if demo_mode:
+        demo_text = _demo_response(caller_input, caller_id, caller_phone)
+        is_fallback = demo_text == TEMPLATES.get("fallback_human")
         return CrewTurnResult(
-            response_text=_demo_response(caller_input, caller_id, caller_phone),
+            response_text=demo_text,
             voice_id=_preferred_tts_voice_id(),
+            offer_human_transfer=is_fallback,
         )
 
     member_id, email, dob = _extract_profile_fields(caller_input, conversation_history, caller_id)
@@ -604,9 +611,9 @@ def build_crew_for_query(
     rag_values.setdefault("remaining_limit", verification.get("claims_remaining", "€0"))
 
     rendered = render_portal_response(intent, rag_values)
-    suggest_live = intent in ("fallback_human", "request_live_agent")
     return CrewTurnResult(
         response_text=rendered.rendered_text,
         portal_render=rendered,
-        suggest_live_agent=suggest_live,
+        suggest_live_agent=(intent == "request_live_agent"),
+        offer_human_transfer=(intent == "fallback_human"),
     )

@@ -488,7 +488,7 @@ async function submitLiveAgentHandoff(reason) {
       }),
     });
     if (r.ok) {
-      showToast('Sent to live agent queue — open /portal (Live Calls) for full context.', 'info');
+      showToast('Transfer queued — an agent can claim you in the portal Call desk with full context.', 'info');
       return await r.json();
     }
     showToast(`Live agent queue failed (${r.status})`, 'error');
@@ -496,6 +496,56 @@ async function submitLiveAgentHandoff(reason) {
     showToast('Live agent queue failed.', 'error');
   }
   return null;
+}
+
+function removeHumanTransferOffers() {
+  document.querySelectorAll('.human-transfer-offer-wrap').forEach((el) => el.remove());
+}
+
+/**
+ * Shown after the AI could not answer confidently (fallback). User must confirm before handoff.
+ */
+function appendHumanTransferOffer() {
+  removeHumanTransferOffers();
+  const messages = document.getElementById('chat-messages');
+  if (!messages) return;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'message assistant human-transfer-offer-wrap';
+  wrap.innerHTML = `
+    <div class="msg-avatar" title="Handoff">⋯</div>
+    <div>
+      <div class="human-transfer-card">
+        <div class="human-transfer-title">Connect with a team member?</div>
+        <p class="human-transfer-desc">If you choose yes, your transcript is sent to the portal so an agent can pick this up with full context.</p>
+        <div class="human-transfer-actions">
+          <button type="button" class="btn btn-primary human-transfer-yes" style="font-size:0.82rem;padding:0.4rem 0.9rem;">Yes, transfer me</button>
+          <button type="button" class="btn btn-ghost human-transfer-no" style="font-size:0.82rem;padding:0.4rem 0.9rem;">No, keep chatting</button>
+        </div>
+      </div>
+      <div class="msg-time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+    </div>`;
+
+  const yes = wrap.querySelector('.human-transfer-yes');
+  const no = wrap.querySelector('.human-transfer-no');
+  if (yes) {
+    yes.addEventListener('click', async () => {
+      yes.disabled = true;
+      if (no) no.disabled = true;
+      lastPortalIntent = 'request_live_agent';
+      await submitLiveAgentHandoff('user_accepted_after_unclear_ai');
+      removeHumanTransferOffers();
+    });
+  }
+  if (no) {
+    no.addEventListener('click', () => {
+      removeHumanTransferOffers();
+      showToast('Okay — ask another question anytime.', 'info');
+    });
+  }
+
+  messages.appendChild(wrap);
+  messages.scrollTop = messages.scrollHeight;
 }
 
 async function sendMessage(forcedText = null) {
@@ -561,8 +611,8 @@ async function sendMessage(forcedText = null) {
 
       if (result.portal_intent === 'request_live_agent') {
         submitLiveAgentHandoff('explicit_intent');
-      } else if (result.suggest_live_agent) {
-        showToast('For a human: click Live agent in the chat header to send this thread to the portal.', 'info');
+      } else if (result.offer_human_transfer) {
+        appendHumanTransferOffer();
       }
 
       // Play the TTS audio response (optional per-intent voice from portal)
@@ -815,6 +865,7 @@ function fallbackBrowserTTS(text) {
 
 function clearSimulation() {
   hardStopAll('');
+  removeHumanTransferOffers();
   lastPortalIntent = null;
   simConversationHistory = [];
   talkModeQueue = [];

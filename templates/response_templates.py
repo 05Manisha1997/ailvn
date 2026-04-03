@@ -54,9 +54,9 @@ DEFAULT_TEMPLATES: dict[str, str] = {
         "Our team is always here to help. Thank you so much for your understanding."
     ),
     "fallback_human": (
-        "I want to make sure you get exactly the right answer for this. "
-        "Let me connect you with one of our specialists who can help you further — "
-        "please hold for just a moment."
+        "I'm not fully confident I have the right answer on that. "
+        "If you'd like, you can choose below to have a team member help — "
+        "they'll see this conversation so you won't have to repeat everything."
     ),
     "greeting": (
         "Hello, and thank you so much for calling InsureCo! "

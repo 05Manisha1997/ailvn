@@ -76,11 +76,18 @@ DEFAULT_INSURANCE_TEMPLATES: dict[str, InsuranceTemplate] = {
     ),
     "fallback_human": InsuranceTemplate(
         intent="fallback_human",
-        template="I wasn't able to find a clear answer for your query. Let me transfer you to a specialist right away.",
+        template=(
+            "I'm not fully confident I have the right answer for you on that. "
+            "If you'd like, you can choose below to have a team member take over — "
+            "they'll see this conversation on their screen so you won't have to repeat everything."
+        ),
     ),
     "request_live_agent": InsuranceTemplate(
         intent="request_live_agent",
-        template="I'm connecting you with a live specialist now. They can see this conversation on the portal so you won't need to repeat everything.",
+        template=(
+            "I'll get you through to a team member. They'll see this conversation on the portal "
+            "with full context."
+        ),
     ),
 }
 

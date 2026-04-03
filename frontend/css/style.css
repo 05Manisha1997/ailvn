@@ -1032,6 +1032,35 @@ select.form-control option {
   margin-top: 4px;
 }
 
+.human-transfer-offer-wrap .human-transfer-card {
+  max-width: min(420px, 92vw);
+  padding: 14px 16px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  background: linear-gradient(135deg, rgba(79, 142, 247, 0.12), rgba(167, 139, 250, 0.08));
+  border: 1px solid rgba(79, 142, 247, 0.35);
+}
+
+.human-transfer-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.human-transfer-desc {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.human-transfer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
 /* Typing indicator */
 .typing .msg-bubble {
   display: flex;
@@ -1416,6 +1445,11 @@ body.light-theme .msg-bubble {
   background: white;
   color: var(--text);
   box-shadow: var(--shadow);
+}
+
+body.light-theme .human-transfer-offer-wrap .human-transfer-card {
+  background: linear-gradient(135deg, rgba(79, 142, 247, 0.14), rgba(167, 139, 250, 0.1));
+  border-color: rgba(79, 142, 247, 0.35);
 }
 
 body.light-theme .form-control,

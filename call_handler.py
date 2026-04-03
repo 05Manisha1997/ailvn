@@ -57,6 +57,7 @@ class SimulateResponse(BaseModel):
     portal_intent: Optional[str] = None
     portal_slots_filled: Optional[dict] = None
     suggest_live_agent: bool = False
+    offer_human_transfer: bool = False
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -173,6 +174,7 @@ async def simulate_call_turn(body: SimulateRequest):
         portal_intent=portal_intent,
         portal_slots_filled=portal_slots,
         suggest_live_agent=bool(getattr(turn, "suggest_live_agent", False)),
+        offer_human_transfer=bool(getattr(turn, "offer_human_transfer", False)),
     )
 
 

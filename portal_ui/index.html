@@ -368,8 +368,8 @@ function LiveCallsPage() {
       <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:16, flexWrap:'wrap' }}>
         <div style={{ width:8, height:8, borderRadius:'50%', background:'#FCD34D',
           boxShadow:'0 0 8px #FCD34D' }} />
-        <span style={{ fontSize:13, color:'#FCD34D', fontWeight:700 }}>Live agent queue</span>
-        <span style={{ color:'#475569', fontSize:12 }}>Refreshes every 5s · Escalations from Call Simulator</span>
+        <span style={{ fontSize:13, color:'#FCD34D', fontWeight:700 }}>Caller transfers</span>
+        <span style={{ color:'#475569', fontSize:12 }}>Refreshes every 5s · Claims include full transcript for the agent</span>
         <Btn small outline onClick={load}>Refresh</Btn>
       </div>
       {loadErr && (
@@ -423,6 +423,20 @@ function LiveCallsPage() {
             border:'1px solid #334155', maxHeight:320, overflow:'auto', color:'#E2E8F0',
             fontFamily:'ui-monospace, monospace',
           }}>{detail.issue_summary || ''}</pre>
+          {detail.caller_phone && (
+            <div style={{ marginTop:14, padding:12, background:'#0F172A', borderRadius:8, border:'1px solid #334155' }}>
+              <div style={{ fontSize:11, color:'#94A3B8', textTransform:'uppercase', marginBottom:6 }}>Reach this caller</div>
+              <div style={{ fontSize:16, fontWeight:700, color:'#FCD34D', letterSpacing:0.3 }}>{detail.caller_phone}</div>
+              <div style={{ fontSize:12, color:'#64748B', marginTop:8, lineHeight:1.45 }}>
+                After you claim, use your desk phone or contact-center client to dial this number.
+                Simulator and PSTN sessions are not auto-bridged in the browser — the handoff is context + callback.
+              </div>
+              <a
+                href={'tel:' + String(detail.caller_phone).replace(/\s/g, '')}
+                style={{ display:'inline-block', marginTop:10, color:'#38BDF8', fontWeight:600, fontSize:13 }}
+              >Open dial (tel: link)</a>
+            </div>
+          )}
           <div style={{ marginTop:12, fontSize:11, color:'#64748B' }}>Raw transcript (JSON)</div>
           <pre style={{
             whiteSpace:'pre-wrap', fontSize:11, background:'#0F172A', padding:12, borderRadius:8,
@@ -454,6 +468,8 @@ function CallHistoryPage() {
 
   return (
     <div>
+      <LiveCallsPage />
+      <div style={{ fontSize:16, fontWeight:800, color:'#E2E8F0', marginBottom:12, marginTop:8 }}>Recent activity (sample)</div>
       <div style={{ marginBottom:16 }}>
         <Input placeholder="Search by name or phone..."
           value={filter} onChange={setFilter} />
@@ -577,8 +593,7 @@ function PolicyManagerPage() {
 // ── App Shell ──────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
   { id:'templates', label:'Response Templates', icon:'⚙️' },
-  { id:'live',      label:'Live Calls',         icon:'📞' },
-  { id:'history',   label:'Call History',       icon:'📋' },
+  { id:'history',   label:'Call desk',          icon:'📞' },
   { id:'analytics', label:'Analytics',          icon:'📊' },
   { id:'policies',  label:'Policy Manager',     icon:'🗂️' },
 ];
@@ -632,14 +647,12 @@ function App() {
         </div>
         <div style={{ color:'#475569', fontSize:13, marginBottom:24 }}>
           {page === 'templates' && 'Configure intent mappings, response templates, and sub-routing logic.'}
-          {page === 'live' && 'Live agent queue: pending escalations from the Call Simulator (full transcript + issue summary). Claim, then resolve when done.'}
-          {page === 'history' && 'Review completed calls, intent journeys, and summaries.'}
+          {page === 'history' && 'Claim queued transfers with full context, contact the caller by phone, then mark resolved. Sample call list below.'}
           {page === 'analytics' && 'Operational analytics for calls and AI performance.'}
           {page === 'policies' && 'Policyholder directory and plan snapshot.'}
         </div>
 
         {page === 'templates' && <TemplatesPage />}
-        {page === 'live'      && <LiveCallsPage />}
         {page === 'history'   && <CallHistoryPage />}
         {page === 'analytics' && <AnalyticsPage />}
         {page === 'policies'  && <PolicyManagerPage />}
