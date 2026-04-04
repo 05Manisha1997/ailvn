@@ -374,8 +374,6 @@ async function loadSimulatorPolicyholders() {
     const opt = document.createElement('option');
     opt.value = p.member_id || '';
     opt.dataset.phone = p.phone || '';
-    opt.dataset.email = p.email || '';
-    opt.dataset.memberName = p.name || '';
     opt.textContent = `${p.member_id} — ${p.name || 'Member'} (${p.plan_name || 'Plan'})`;
     select.appendChild(opt);
   });
@@ -462,8 +460,6 @@ async function submitLiveAgentHandoff(reason) {
   const opt = sel && sel.selectedOptions[0];
   const simPhone = opt && opt.dataset.phone ? opt.dataset.phone : '';
   const memberId = opt && opt.value ? opt.value : '';
-  const custEmail = opt && opt.dataset.email ? opt.dataset.email : '';
-  const custName = opt && opt.dataset.memberName ? opt.dataset.memberName : '';
   if (!memberId || !simPhone) {
     showToast('Select a policyholder first.', 'error');
     return null;
@@ -481,8 +477,6 @@ async function submitLiveAgentHandoff(reason) {
         portal_intent: lastPortalIntent,
         reason: reason || 'user_requested',
         source: 'simulator',
-        customer_email: custEmail,
-        customer_name: custName,
       }),
     });
     if (r.ok) {
@@ -861,7 +855,46 @@ function fallbackBrowserTTS(text) {
   }
 }
 
-function clearSimulation() {
+async function clearSimulation() {
+  const hist = Array.isArray(simConversationHistory) ? [...simConversationHistory] : [];
+  const sel = document.getElementById('sim-policy-select');
+  const opt = sel && sel.selectedOptions[0];
+  const simPhone = opt && opt.dataset.phone ? opt.dataset.phone : '';
+  const memberId = opt && opt.value ? opt.value : '';
+  const custEmail = opt && opt.dataset.email ? opt.dataset.email : '';
+  const custName = opt && opt.dataset.memberName ? opt.dataset.memberName : '';
+  const intentSnap = lastPortalIntent;
+
+  let summaryNote = '';
+  if (hist.length >= 2 && memberId && simPhone) {
+    try {
+      const r = await fetch(`${API_BASE}/simulate/conversation-summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_history: hist,
+          caller_phone: simPhone,
+          simulated_member_id: memberId,
+          last_portal_intent: intentSnap,
+        }),
+      });
+      if (r.ok) {
+        const j = await r.json();
+        if (j.email_sent) {
+          summaryNote = ' Summary emailed to the policyholder.';
+        } else if (j.email_skipped_reason === 'no_customer_email') {
+          summaryNote = ' No email on this member in the policyholder database—summary not sent.';
+        } else if (j.email_skipped_reason === 'conversation_too_short') {
+          summaryNote = '';
+        } else if (j.email_skipped_reason) {
+          summaryNote = ' Summary not emailed (' + j.email_skipped_reason + ').';
+        }
+      }
+    } catch (_) {
+      summaryNote = ' Could not send summary email (server unreachable).';
+    }
+  }
+
   hardStopAll('');
   removeHumanTransferOffers();
   lastPortalIntent = null;
@@ -890,7 +923,7 @@ function clearSimulation() {
       <div class="msg-avatar">AI</div>
       <div class="msg-bubble" id="sim-initial-msg">${escapeHtml(welcome)}</div>
     </div>`;
-  showToast('Conversation cleared', 'info');
+  showToast('Conversation ended.' + summaryNote, 'info');
 }
 
 document.addEventListener('DOMContentLoaded', () => {

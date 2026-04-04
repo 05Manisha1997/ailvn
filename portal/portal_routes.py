@@ -191,8 +191,6 @@ class LiveAgentHandoffCreate(BaseModel):
     portal_intent: Optional[str] = None
     reason: str = "user_requested"
     source: str = "simulator"
-    customer_email: str = ""
-    customer_name: str = ""
 
 
 @portal_router.post("/live-agent/handoffs")
@@ -209,8 +207,6 @@ async def portal_create_live_handoff(body: LiveAgentHandoffCreate):
         portal_intent=body.portal_intent,
         reason=body.reason,
         source=body.source,
-        customer_email=body.customer_email or "",
-        customer_name=body.customer_name or "",
     )
     return {"status": "queued", "handoff": rec}
 
@@ -262,7 +258,7 @@ async def portal_resolve_live_handoff(
     body: HandoffResolveBody = Body(default_factory=HandoffResolveBody),
 ):
     """
-    Mark handoff resolved. If ``customer_email`` is on file and email (ACS or SendGrid) is configured,
+    Mark handoff resolved. If the policyholder has an email in Cosmos and ACS/SendGrid is configured,
     sends the conversation summary plus optional ``resolution_notes`` to the customer.
     """
     hid = handoff_id.strip()

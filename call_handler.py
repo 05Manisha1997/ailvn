@@ -27,6 +27,7 @@ from agents.tasks import build_crew_for_query
 from tts.elevenlabs_streamer import synthesize_to_bytes
 from tools.template_verifier import verify_and_fix_template
 from portal.insurance_portal import get_insurance_portal
+from services.conversation_summary_email import send_conversation_end_summary_email
 
 router = APIRouter()
 
@@ -58,6 +59,20 @@ class SimulateResponse(BaseModel):
     portal_slots_filled: Optional[dict] = None
     suggest_live_agent: bool = False
     offer_human_transfer: bool = False
+
+
+class ConversationSummaryEmailRequest(BaseModel):
+    """Called when the caller ends a simulator session (e.g. End session)."""
+
+    conversation_history: list = []
+    caller_phone: str = ""
+    simulated_member_id: str = ""
+    last_portal_intent: Optional[str] = None
+
+
+class ConversationSummaryEmailResponse(BaseModel):
+    email_sent: bool
+    email_skipped_reason: Optional[str] = None
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -209,6 +224,27 @@ async def list_simulator_policyholders():
             }
         )
     return {"policyholders": out}
+
+
+@router.post("/simulate/conversation-summary", response_model=ConversationSummaryEmailResponse)
+async def email_simulator_conversation_summary(body: ConversationSummaryEmailRequest):
+    """
+    Email the policyholder a transcript summary when they end the Call Simulator session.
+    Requires ACS or SendGrid. Recipient email (and name) are loaded from the policyholder record in Cosmos only.
+    """
+    sent, reason = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: send_conversation_end_summary_email(
+            conversation_history=body.conversation_history,
+            caller_phone=body.caller_phone or "",
+            simulated_member_id=body.simulated_member_id or "",
+            last_portal_intent=body.last_portal_intent,
+        ),
+    )
+    return ConversationSummaryEmailResponse(
+        email_sent=sent,
+        email_skipped_reason=None if sent else reason,
+    )
 
 
 class TTSRequest(BaseModel):
