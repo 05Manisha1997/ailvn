@@ -5,6 +5,7 @@ Route D - member database lookup for RAG slot filling.
 from __future__ import annotations
 
 from database.cosmos_client import db
+from rag.blob_client import fetch_members
 
 # Small local fallback for demo/offline.
 DEMO_MEMBERS: dict[str, dict] = {
@@ -15,7 +16,7 @@ DEMO_MEMBERS: dict[str, dict] = {
         "plan_type": "comprehensive",
         "deductible": 500,
         "deductible_used": 200,
-        "annual_limit": 100000,
+        "annual_limit": 80000,
         "claims_used": 12500,
         "network_tier": 1,
     },
@@ -43,8 +44,17 @@ def get_member_data(member_id: str) -> dict | None:
         return None
 
     raw = db.get_policyholder(key) if db._container is not None else None
+    
+    # Next, try Blob Storage
+    if raw is None:
+        blob_members = fetch_members()
+        if blob_members:
+            raw = blob_members.get(key)
+
+    # Finally, fallback to DEMO_MEMBERS
     if raw is None:
         raw = DEMO_MEMBERS.get(key)
+    
     if raw is None:
         return None
 
@@ -67,5 +77,6 @@ def get_member_data(member_id: str) -> dict | None:
         "annual_limit": f"EUR {annual_limit:,.0f}",
         "claims_used": f"EUR {claims_used:,.0f}",
         "claims_remaining": f"EUR {claims_remaining:,.0f}",
+        "benefit_summary": raw.get("benefit_summary", {}),
     }
 

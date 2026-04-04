@@ -3,10 +3,11 @@ services/tts_service.py
 
 Phase 7 — Text-to-Speech (Voice Synthesis)
 
-Primary:  ElevenLabs API (10,000 chars/month free)
-Fallback: Azure Cognitive Services TTS (500,000 chars/month free)
+Primary:  ElevenLabs API  — eleven_turbo_v2, tuned for empathy
+Fallback: Azure Neural TTS — en-US-JennyNeural via SSML
+             (warm pacing, customer-service style, gentle pauses)
 
-Returns PCM audio bytes that are streamed back to Genesis/caller.
+Returns MP3/PCM audio bytes that are streamed back to the caller.
 """
 import asyncio
 import io
@@ -74,9 +75,11 @@ class TTSService:
 
     def _elevenlabs_tts(self, text: str, voice_id: str) -> bytes:
         """
-        ElevenLabs API call.
-        Free tier: 10,000 chars/month.
-        Model: eleven_turbo_v2 (lowest latency, best for real-time calls).
+        ElevenLabs API call — tuned for empathetic, human-sounding delivery.
+        - stability=0.42   : slight natural variability, avoids flat monotone
+        - similarity_boost=0.80 : stays close to the chosen voice persona
+        - style=0.40       : expressiveness that conveys warmth and care
+        - use_speaker_boost: improves clarity on phone-quality audio
         """
         from elevenlabs.client import ElevenLabs
         from elevenlabs import VoiceSettings
@@ -88,22 +91,22 @@ class TTSService:
             text=text,
             model_id=settings.elevenlabs_model_id,
             voice_settings=VoiceSettings(
-                stability=0.5,
-                similarity_boost=0.75,
-                style=0.0,
-                use_speaker_boost=True,
+                stability=0.42,           # Natural variability
+                similarity_boost=0.80,    # True to the persona
+                style=0.40,               # Warmth & expressiveness
+                use_speaker_boost=True,   # Clarity on phone audio
             ),
             output_format="mp3_44100_128",
         )
 
-        # Collect generator into bytes
         return b"".join(audio_generator)
 
-    def _azure_tts(self, text: str) -> bytes:
+    def _azure_tts(self, text: str, lang_code: str = "en-US") -> bytes:
         """
-        Azure Cognitive Services TTS.
-        Free: 500,000 characters/month.
-        Uses neural voices for natural-sounding speech.
+        Azure Neural TTS with SSML for empathetic, natural-paced delivery.
+        Voice: en-US-JennyNeural (warm, caring, ideal for support calls)
+        Style: customerservice — attentive and helpful
+        Prosody: 95% rate + gentle pauses = easier to follow on a phone call
         """
         import azure.cognitiveservices.speech as speechsdk
 
@@ -114,21 +117,31 @@ class TTSService:
         speech_config.set_speech_synthesis_output_format(
             speechsdk.SpeechSynthesisOutputFormat.Audio16Khz128KBitRateMonoMp3
         )
-        # Use neural voice — sounds natural
-        speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
 
-        # Synthesize to memory stream
-        audio_stream = speechsdk.audio.AudioOutputStream.create_pull_audio_output_stream()
-        audio_config = speechsdk.audio.AudioConfig(stream=audio_stream)
         synthesizer = speechsdk.SpeechSynthesizer(
-            speech_config=speech_config,
-            audio_config=audio_config,
+            speech_config=speech_config, audio_config=None
         )
 
-        result = synthesizer.speak_text_async(text).get()
+        # Escape XML-unsafe chars before injecting into SSML
+        safe_text = (
+            text.replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace('"', "&quot;")
+        )
+        ssml = f"""<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis"
+               xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="{lang_code}">
+  <voice name="en-US-JennyNeural">
+    <mstts:express-as style="customerservice" styledegree="1.5">
+      <prosody rate="95%" pitch="-1%">
+        <break time="200ms"/>{safe_text}<break time="150ms"/>
+      </prosody>
+    </mstts:express-as>
+  </voice>
+</speak>"""
+
+        result = synthesizer.speak_ssml_async(ssml).get()
 
         if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
-            logger.info("tts_azure", chars=len(text))
+            logger.info("tts_azure_ssml", chars=len(text), lang=lang_code)
             return result.audio_data
         else:
             raise RuntimeError(f"Azure TTS failed: {result.reason}")

@@ -185,7 +185,8 @@ class Settings(BaseSettings):
 
     # ── Azure Blob Storage ───────────────────────────
     azure_storage_connection_string: str = ""
-    azure_storage_container_docs: str = "voice-nav-docs"
+    azure_storage_container_docs: str = "rag-docs"
+
 
     # ── ChromaDB ────────────────────────────────────
     chroma_host: str = "localhost"

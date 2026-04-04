@@ -14,98 +14,56 @@ except Exception:
         return _decorator
 from config import settings
 
-# ── Demo knowledge base (used when Azure Search is not configured) ────────────
-DEMO_POLICY_KB: list[dict] = [
-    {
-        "policy_id": "POL-001",
-        "section": "Hospital Coverage",
-        "content": (
-            "PremiumCare Plus covers 80% of inpatient and outpatient treatment costs "
-            "at all in-network hospitals, up to an annual maximum of €80,000. "
-            "Covered hospitals include: St. Vincent's, Mater Private, Beacon Hospital, "
-            "Blackrock Clinic, and Dublin City Hospital."
-        ),
-        "coverage_type": "hospital",
-        "keywords": ["hospital", "coverage", "inpatient", "outpatient", "network"],
-    },
-    {
-        "policy_id": "POL-001",
-        "section": "Surgery Benefits",
-        "content": (
-            "Surgical procedures under PremiumCare Plus are covered at 90% "
-            "with a per-procedure limit of €20,000. Pre-authorisation is required "
-            "for elective procedures exceeding €5,000."
-        ),
-        "coverage_type": "surgery",
-        "keywords": ["surgery", "surgical", "procedure", "operation"],
-    },
-    {
-        "policy_id": "POL-001",
-        "section": "Mental Health",
-        "content": (
-            "Mental health inpatient cover is included up to 100 days per annum "
-            "at 75% of costs, capped at €15,000. Outpatient counselling is covered "
-            "for up to 20 sessions per year at €75 per session."
-        ),
-        "coverage_type": "mental_health",
-        "keywords": ["mental health", "counselling", "therapy", "psychiatry"],
-    },
-    {
-        "policy_id": "POL-002",
-        "section": "Hospital Coverage",
-        "content": (
-            "StandardCare covers 70% of hospital costs at in-network facilities, "
-            "up to €40,000 per year. Out-of-network hospitals are covered at 50%."
-        ),
-        "coverage_type": "hospital",
-        "keywords": ["hospital", "coverage", "inpatient", "network"],
-    },
-    {
-        "policy_id": "POL-002",
-        "section": "Dental",
-        "content": (
-            "Dental cover under StandardCare: routine check-ups covered at 100% "
-            "(2 per year). Restorative work covered at 60% up to €1,500 per year. "
-            "Orthodontics are excluded."
-        ),
-        "coverage_type": "dental",
-        "keywords": ["dental", "teeth", "orthodontic", "check-up"],
-    },
-    {
-        "policy_id": "POL-003",
-        "section": "Hospital Coverage",
-        "content": (
-            "BasicCare provides semi-private room cover at 60% of costs up to €15,000 "
-            "per year. Only hospitals in the Tier 1 network are covered. "
-            "Private room upgrades are not included."
-        ),
-        "coverage_type": "hospital",
-        "keywords": ["hospital", "semi-private", "basic", "tier 1"],
-    },
-]
+import functools
+from rag.blob_client import fetch_policy_kb
 
+@functools.lru_cache(maxsize=1)
+def _get_cached_policy_kb() -> list[dict]:
+    """Fetch KB from blob storage and cache it for 1 hour (simulated by lru_cache for now)."""
+    kb = fetch_policy_kb()
+    return kb if kb else []
 
-def _search_demo_kb(query: str, policy_id: str, top_k: int = 3) -> list[str]:
-    """Simple keyword-based fallback search over the demo KB."""
+def _search_dynamic_kb(query: str, plan_type: str, top_k: int = 3) -> list[str]:
+    """Search over the dynamic knowledge base loaded from Blob Storage."""
+    kb = _get_cached_policy_kb()
+    if not kb:
+        return ["Error: Could not load policy knowledge base from Azure Storage."]
+        
     query_lower = query.lower()
+    plan_type_lower = (plan_type or "").lower()
     scored = []
-    for doc in DEMO_POLICY_KB:
-        if doc["policy_id"].upper() != policy_id.upper():
+    
+    for doc in kb:
+        # Personalization: filter by plan type if provided
+        doc_plan = str(doc.get("plan_type", "")).lower()
+        if plan_type_lower and doc_plan and plan_type_lower not in doc_plan and doc_plan not in plan_type_lower:
             continue
-        score = sum(1 for kw in doc["keywords"] if kw in query_lower)
-        if score > 0 or any(kw in query_lower for kw in ["cover", "hospital", "claim"]):
+            
+        # Basic keyword scoring
+        content = doc.get("content", "").lower()
+        keywords = doc.get("keywords", [])
+        score = sum(2 for kw in keywords if str(kw).lower() in query_lower)
+        if any(word in content for word in query_lower.split()):
+            score += 1
+            
+        if score > 0:
             scored.append((score, doc))
+            
     scored.sort(key=lambda x: x[0], reverse=True)
-    return [
-        f"[{d['section']}]: {d['content']}"
+    
+    results = [
+        f"[{d.get('section', 'General')}]: {d.get('content', '')}"
         for _, d in scored[:top_k]
-    ] or [
-        f"[General]: No specific clause found for this query under policy {policy_id}. "
-        "Please consult your full policy document."
     ]
+    
+    if not results:
+        return [f"No specific clause found for '{query}' under your {plan_type} plan in the policy documents."]
+        
+    return results
 
 
-def _search_azure(query: str, policy_id: str, top_k: int = 3) -> list[str] | None:
+
+def _search_azure(query: str, plan_type: str, top_k: int = 3) -> list[str] | None:
     """Attempt Azure AI Search hybrid retrieval; return None if not configured."""
     if not settings.azure_search_endpoint or not settings.azure_search_key:
         return None
@@ -136,10 +94,13 @@ def _search_azure(query: str, policy_id: str, top_k: int = 3) -> list[str] | Non
             k_nearest_neighbors=top_k,
             fields="content_vector",
         )
+        # Apply OData filter using the policy_type (e.g. 'Company Care Plus' or 'comprehensive')
+        filter_expr = f"applicable_policies/any(p: p eq '{plan_type}')" if plan_type else None
+        
         results = search_client.search(
             search_text=query,
             vector_queries=[vector_query],
-            filter=f"policy_id eq '{policy_id}'",
+            filter=filter_expr,
             select=["content", "section_title", "coverage_type"],
             top=top_k,
         )
@@ -150,28 +111,52 @@ def _search_azure(query: str, policy_id: str, top_k: int = 3) -> list[str] | Non
 
 
 @tool("Policy RAG Retriever")
-def policy_rag_tool(query: str, policy_id: str) -> str:
+def policy_rag_tool(query: str, plan_type: str, member_id: str = "unknown") -> str:
     """
-    Retrieve relevant policy clauses for a given query and policy ID.
-    Searches Azure AI Search (hybrid vector + keyword) or falls back to
-    the built-in demo knowledge base.
-
+    Retrieve relevant policy clauses for a given query and plan type.
+    
     Args:
-        query: The insurance-related question (e.g. 'Is surgery at Beacon Hospital covered?').
-        policy_id: The policyholder's policy ID (e.g. 'POL-001').
-
-    Returns:
-        JSON string with a list of relevant policy clause excerpts.
+        query: Insurance-related question.
+        plan_type: Plan type (e.g. 'comprehensive').
+        member_id: The member's specific ID (e.g. 'POL-001').
     """
-    azure_results = _search_azure(query, policy_id)
+    azure_results = _search_azure(query, plan_type)
     if azure_results:
         clauses = azure_results
     else:
-        clauses = _search_demo_kb(query, policy_id)
+        # Pass the member_id to the dynamic lookup so it can fetch their specific .txt file if needed
+        kb = fetch_policy_kb(member_id=member_id)
+        if not kb:
+            clauses = ["Error: Could not load policy knowledge for this member."]
+        else:
+            clauses = _search_dynamic_kb_from_loaded(query, plan_type, kb)
 
     return json.dumps({
-        "policy_id": policy_id,
+        "plan_type": plan_type,
         "query": query,
+        "member_id": member_id,
         "clauses": clauses,
-        "source": "azure_ai_search" if azure_results else "demo_kb",
+        "source": "azure_ai_search" if azure_results else "azure_blob_storage",
     })
+
+def _search_dynamic_kb_from_loaded(query: str, plan_type: str, kb: list[dict], top_k: int = 3) -> list[str]:
+    query_lower = (query or "").lower()
+    scored = []
+    
+    for doc in kb:
+        content = str(doc.get("content", "")).lower()
+        title = str(doc.get("section", "")).lower()
+        keywords = [str(k).lower() for k in doc.get("keywords", [])]
+        
+        score = sum(3 for kw in keywords if kw in query_lower)
+        if any(word in content or word in title for word in query_lower.split()):
+            score += 1
+            
+        if score > 0 or len(kb) == 1: # Always return if it's the only (member-specific) file
+            scored.append((score, doc))
+            
+    scored.sort(key=lambda x: x[0], reverse=True)
+    results = [f"[{d.get('section', 'General')}]: {d.get('content', '')}" for _, d in scored[:top_k]]
+    return results if results else [f"No matches found for '{query}' in the policy document."]
+
+

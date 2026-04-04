@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from config.settings import get_settings
 from utils.logger import logger
 from portal.portal_routes import portal_router
+from call_handler import router as call_router
 
 settings = get_settings()
 
@@ -59,6 +60,7 @@ app.add_middleware(
 )
 
 app.include_router(portal_router)
+app.include_router(call_router, tags=["Call Handling"])
 
 
 # ── Health Check ──────────────────────────────────────────────────────────────

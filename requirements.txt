@@ -128,7 +128,6 @@ zstandard==0.25.0
 fastapi
 uvicorn
 phonenumbers
-crewai
 elevenlabs
 azure-cosmos
 azure-communication-email
