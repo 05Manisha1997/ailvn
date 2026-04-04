@@ -374,18 +374,12 @@ async function loadSimulatorPolicyholders() {
     const opt = document.createElement('option');
     opt.value = p.member_id || '';
     opt.dataset.phone = p.phone || '';
+    opt.dataset.email = p.email || '';
+    opt.dataset.memberName = p.name || '';
     opt.textContent = `${p.member_id} — ${p.name || 'Member'} (${p.plan_name || 'Plan'})`;
     select.appendChild(opt);
   });
   select.onchange = onPolicyholderChange;
-}
-
-function setQuery(text) {
-  const input = document.getElementById('sim-input');
-  if (input) {
-    input.value = text;
-    input.focus();
-  }
 }
 
 function toggleTalkModeUI() {
@@ -468,6 +462,8 @@ async function submitLiveAgentHandoff(reason) {
   const opt = sel && sel.selectedOptions[0];
   const simPhone = opt && opt.dataset.phone ? opt.dataset.phone : '';
   const memberId = opt && opt.value ? opt.value : '';
+  const custEmail = opt && opt.dataset.email ? opt.dataset.email : '';
+  const custName = opt && opt.dataset.memberName ? opt.dataset.memberName : '';
   if (!memberId || !simPhone) {
     showToast('Select a policyholder first.', 'error');
     return null;
@@ -485,6 +481,8 @@ async function submitLiveAgentHandoff(reason) {
         portal_intent: lastPortalIntent,
         reason: reason || 'user_requested',
         source: 'simulator',
+        customer_email: custEmail,
+        customer_name: custName,
       }),
     });
     if (r.ok) {

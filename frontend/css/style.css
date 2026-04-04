@@ -900,36 +900,6 @@ select.form-control option {
   color: var(--text-muted);
 }
 
-.quick-queries h3 {
-  font-size: 12px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: .4px;
-  margin-bottom: 8px;
-}
-
-.quick-btn {
-  display: block;
-  width: 100%;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  font-size: 12px;
-  cursor: pointer;
-  text-align: left;
-  margin-bottom: 6px;
-  transition: all var(--transition);
-  font-family: inherit;
-}
-
-.quick-btn:hover {
-  border-color: var(--teal);
-  color: var(--text);
-  background: var(--teal-dim);
-}
-
 /* Chat */
 .chat-header {
   display: flex;

@@ -4,10 +4,13 @@ Portal dashboard lists pending items with full conversation context for handoff.
 """
 from __future__ import annotations
 
+import re
 import threading
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
+
+_EMAIL_RE = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
 
 MAX_HANDOFFS = 200
 
@@ -47,6 +50,44 @@ def _build_issue_summary(
     return "\n".join(lines)
 
 
+def _extract_email_from_history(history: list[dict[str, Any]]) -> str:
+    """Last user message containing an email wins (e.g. typed in chat)."""
+    for m in reversed(history or []):
+        if (m.get("role") or "") != "user":
+            continue
+        mm = _EMAIL_RE.search(str(m.get("content") or ""))
+        if mm:
+            return mm.group(0).strip()
+    return ""
+
+
+def _resolve_customer_contact(
+    *,
+    conversation_history: list[dict[str, Any]],
+    simulated_member_id: str,
+    customer_email: str,
+    customer_name: str,
+) -> tuple[str, str]:
+    email = (customer_email or "").strip()
+    name = (customer_name or "").strip()
+    mid = (simulated_member_id or "").strip()
+    if mid and (not email or not name):
+        try:
+            from database.cosmos_client import db
+
+            ph = db.get_policyholder(mid)
+            if ph:
+                if not email:
+                    email = (ph.get("email") or "").strip()
+                if not name:
+                    name = (ph.get("name") or "").strip()
+        except Exception:
+            pass
+    if not email:
+        email = _extract_email_from_history(conversation_history)
+    return email, name
+
+
 def create_handoff(
     *,
     conversation_history: list[dict[str, Any]],
@@ -56,6 +97,8 @@ def create_handoff(
     portal_intent: Optional[str] = None,
     reason: str = "user_requested",
     source: str = "simulator",
+    customer_email: str = "",
+    customer_name: str = "",
 ) -> dict[str, Any]:
     issue_summary = _build_issue_summary(
         conversation_history,
@@ -63,6 +106,12 @@ def create_handoff(
         caller_phone,
         simulated_member_id,
         verified,
+    )
+    c_email, c_name = _resolve_customer_contact(
+        conversation_history=conversation_history,
+        simulated_member_id=simulated_member_id,
+        customer_email=customer_email,
+        customer_name=customer_name,
     )
     with _lock:
         hid = str(uuid.uuid4())
@@ -78,6 +127,8 @@ def create_handoff(
             "reason": reason,
             "conversation_history": list(conversation_history or []),
             "issue_summary": issue_summary,
+            "customer_email": c_email,
+            "customer_name": c_name,
             "claimed_by": None,
             "claimed_at": None,
         }
@@ -111,6 +162,7 @@ def list_handoffs(status: Optional[str] = None) -> list[dict[str, Any]]:
                     "reason": r.get("reason"),
                     "claimed_by": r.get("claimed_by"),
                     "claimed_at": r.get("claimed_at"),
+                    "has_customer_email": bool((r.get("customer_email") or "").strip()),
                     "preview": (r.get("issue_summary") or "")[:280],
                 }
             )

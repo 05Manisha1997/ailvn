@@ -204,6 +204,7 @@ async def list_simulator_policyholders():
                 "member_id": mid,
                 "name": r.get("name", ""),
                 "phone": r.get("phone", ""),
+                "email": r.get("email", ""),
                 "plan_name": r.get("plan_name", ""),
             }
         )

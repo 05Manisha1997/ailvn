@@ -350,11 +350,28 @@ function LiveCallsPage() {
   };
 
   const doResolve = async (id) => {
+    const notes = window.prompt(
+      'Optional note for the customer summary email (leave empty for a standard closing):',
+      ''
+    );
+    if (notes === null) return;
     try {
-      const r = await fetch(`${API}/live-agent/handoffs/${id}/resolve`, { method: 'POST' });
+      const r = await fetch(`${API}/live-agent/handoffs/${id}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolution_notes: notes.trim() || null }),
+      });
       if (!r.ok) throw new Error(await r.text());
+      const j = await r.json();
       setDetail(null);
       await load();
+      let msg = j.status === 'already_resolved' ? 'Already resolved.' : 'Marked resolved.';
+      if (j.email_sent) msg += ' Summary email sent to the customer.';
+      else if (j.email_skipped_reason === 'no_customer_email') msg += ' No customer email on file — nothing was mailed.';
+      else if (j.email_skipped_reason && j.email_skipped_reason !== 'already_resolved') {
+        msg += ' Email not sent (' + j.email_skipped_reason + ').';
+      }
+      alert(msg);
     } catch (e) {
       alert(e.message || String(e));
     }
@@ -369,7 +386,7 @@ function LiveCallsPage() {
         <div style={{ width:8, height:8, borderRadius:'50%', background:'#FCD34D',
           boxShadow:'0 0 8px #FCD34D' }} />
         <span style={{ fontSize:13, color:'#FCD34D', fontWeight:700 }}>Caller transfers</span>
-        <span style={{ color:'#475569', fontSize:12 }}>Refreshes every 5s · Claims include full transcript for the agent</span>
+        <span style={{ color:'#475569', fontSize:12 }}>Refreshes every 5s · Resolving sends a summary email when customer email is on file (ACS or SendGrid)</span>
         <Btn small outline onClick={load}>Refresh</Btn>
       </div>
       {loadErr && (
@@ -386,7 +403,7 @@ function LiveCallsPage() {
             <div key={h.id} style={{ borderTop:'1px solid #334155', paddingTop:10, marginTop:10 }}>
               <div style={{ fontSize:12, color:'#64748B' }}>{new Date(h.created_at).toLocaleString()}</div>
               <div style={{ fontWeight:600, marginTop:4 }}>{h.caller_phone || '—'} · {h.simulated_member_id || '—'}</div>
-              <div style={{ fontSize:12, marginTop:4 }}>Intent: <code style={{ color:'#38BDF8' }}>{h.portal_intent || '—'}</code> · verified: {h.verified ? 'yes' : 'no'}</div>
+              <div style={{ fontSize:12, marginTop:4 }}>Intent: <code style={{ color:'#38BDF8' }}>{h.portal_intent || '—'}</code> · verified: {h.verified ? 'yes' : 'no'} · email: {h.has_customer_email ? <span style={{ color:'#34D399' }}>on file</span> : <span style={{ color:'#64748B' }}>none</span>}</div>
               <div style={{ fontSize:12, color:'#94A3B8', marginTop:6, whiteSpace:'pre-wrap' }}>{h.preview}</div>
               <div style={{ marginTop:8, display:'flex', gap:8 }}>
                 <Btn small onClick={() => openDetail(h.id)}>View context</Btn>
@@ -401,10 +418,10 @@ function LiveCallsPage() {
           {claimed.map(h => (
             <div key={h.id} style={{ borderTop:'1px solid #334155', paddingTop:10, marginTop:10 }}>
               <div style={{ fontSize:12 }}><strong>{h.claimed_by}</strong> · {h.claimed_at && new Date(h.claimed_at).toLocaleString()}</div>
-              <div style={{ fontSize:12, marginTop:4 }}>{h.caller_phone} · {h.simulated_member_id}</div>
+              <div style={{ fontSize:12, marginTop:4 }}>{h.caller_phone} · {h.simulated_member_id} · email: {h.has_customer_email ? <span style={{ color:'#34D399' }}>on file</span> : <span style={{ color:'#64748B' }}>none</span>}</div>
               <div style={{ marginTop:8, display:'flex', gap:8 }}>
                 <Btn small onClick={() => openDetail(h.id)}>View context</Btn>
-                <Btn small outline color='#A78BFA' onClick={() => doResolve(h.id)}>Resolve</Btn>
+                <Btn small outline color='#A78BFA' onClick={() => doResolve(h.id)}>Resolve & email</Btn>
               </div>
             </div>
           ))}
@@ -423,6 +440,13 @@ function LiveCallsPage() {
             border:'1px solid #334155', maxHeight:320, overflow:'auto', color:'#E2E8F0',
             fontFamily:'ui-monospace, monospace',
           }}>{detail.issue_summary || ''}</pre>
+          {(detail.customer_email || detail.customer_name) && (
+            <div style={{ marginTop:14, padding:12, background:'#0F172A', borderRadius:8, border:'1px solid #334155' }}>
+              <div style={{ fontSize:11, color:'#94A3B8', textTransform:'uppercase', marginBottom:6 }}>Summary email</div>
+              <div style={{ fontSize:13, color:'#E2E8F0' }}>{detail.customer_name || '—'} · {detail.customer_email || '—'}</div>
+              <div style={{ fontSize:11, color:'#64748B', marginTop:6 }}>On resolve, we email this address if ACS or SendGrid is configured.</div>
+            </div>
+          )}
           {detail.caller_phone && (
             <div style={{ marginTop:14, padding:12, background:'#0F172A', borderRadius:8, border:'1px solid #334155' }}>
               <div style={{ fontSize:11, color:'#94A3B8', textTransform:'uppercase', marginBottom:6 }}>Reach this caller</div>
@@ -447,7 +471,7 @@ function LiveCallsPage() {
               <Btn small color='#34D399' onClick={() => doClaim(detail.id)}>Claim this</Btn>
             )}
             {detail.status === 'claimed' && (
-              <Btn small outline color='#A78BFA' onClick={() => doResolve(detail.id)}>Mark resolved</Btn>
+              <Btn small outline color='#A78BFA' onClick={() => doResolve(detail.id)}>Resolve & email customer</Btn>
             )}
           </div>
         </Card>

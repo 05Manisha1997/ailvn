@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from portal.insurance_portal import get_insurance_portal
 from portal.portal_render import extract_rag_slots, render_portal_response
+from services.handoff_email import send_handoff_closure_email
 from services.live_agent_queue import (
     claim_handoff,
     create_handoff,
@@ -190,6 +191,8 @@ class LiveAgentHandoffCreate(BaseModel):
     portal_intent: Optional[str] = None
     reason: str = "user_requested"
     source: str = "simulator"
+    customer_email: str = ""
+    customer_name: str = ""
 
 
 @portal_router.post("/live-agent/handoffs")
@@ -206,8 +209,18 @@ async def portal_create_live_handoff(body: LiveAgentHandoffCreate):
         portal_intent=body.portal_intent,
         reason=body.reason,
         source=body.source,
+        customer_email=body.customer_email or "",
+        customer_name=body.customer_name or "",
     )
     return {"status": "queued", "handoff": rec}
+
+
+class HandoffResolveBody(BaseModel):
+    resolution_notes: Optional[str] = Field(
+        default=None,
+        max_length=4000,
+        description="Included in the customer summary email when resolved.",
+    )
 
 
 @portal_router.get("/live-agent/handoffs")
@@ -244,10 +257,38 @@ async def portal_claim_live_handoff(
 
 
 @portal_router.post("/live-agent/handoffs/{handoff_id}/resolve")
-async def portal_resolve_live_handoff(handoff_id: str):
-    if not resolve_handoff(handoff_id.strip()):
+async def portal_resolve_live_handoff(
+    handoff_id: str,
+    body: HandoffResolveBody = Body(default_factory=HandoffResolveBody),
+):
+    """
+    Mark handoff resolved. If ``customer_email`` is on file and email (ACS or SendGrid) is configured,
+    sends the conversation summary plus optional ``resolution_notes`` to the customer.
+    """
+    hid = handoff_id.strip()
+    rec = get_handoff(hid)
+    if not rec:
         raise HTTPException(status_code=404, detail="Handoff not found")
-    return {"status": "resolved", "id": handoff_id.strip()}
+    if rec.get("status") == "resolved":
+        return {
+            "status": "already_resolved",
+            "id": hid,
+            "email_sent": False,
+            "email_skipped_reason": "already_resolved",
+        }
+    if not resolve_handoff(hid):
+        raise HTTPException(status_code=404, detail="Handoff not found")
+
+    sent, skip_reason = send_handoff_closure_email(
+        rec,
+        resolution_notes=body.resolution_notes,
+    )
+    return {
+        "status": "resolved",
+        "id": hid,
+        "email_sent": sent,
+        "email_skipped_reason": None if sent else skip_reason,
+    }
 
 
 @portal_router.delete("/templates/{intent}")

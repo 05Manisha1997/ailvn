@@ -52,7 +52,7 @@ POL_001_JOSHUA = {
     "policy_id": "POL-001",
     "policy_number": "POL-001",
     "name": "Joshua",
-    "email": "joshua@email.com",
+    "email": "manisham.workmail@gmail.com",
     "dob": "1985-03-14",
     "phone": "+353-87-111-2233",
     "plan_name": "PremiumCare Plus",
